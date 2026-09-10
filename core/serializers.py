@@ -1,0 +1,302 @@
+from django.db import models, transaction
+from rest_framework import serializers
+
+from .models import Booking, BookingRoom, Expense, Guest, Payment, Room, User
+
+ACTIVE_BOOKING_STATUSES = [Booking.Status.CONFIRMED, Booking.Status.CHECKED_IN]
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "first_name", "last_name", "role"]
+
+
+class RoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = ["id", "number", "is_active"]
+
+
+class GuestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Guest
+        fields = ["id", "name", "phone", "aadhar_number", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+def rooms_overlap_queryset(room_ids, check_in, check_out, exclude_booking_id=None):
+    """Bookings (active only) that overlap the given date range for any of room_ids."""
+    qs = BookingRoom.objects.filter(
+        room_id__in=room_ids,
+        booking__status__in=ACTIVE_BOOKING_STATUSES,
+        booking__check_in__lt=check_out,
+        booking__check_out__gt=check_in,
+    )
+    if exclude_booking_id is not None:
+        qs = qs.exclude(booking_id=exclude_booking_id)
+    return qs
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    recorded_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    booking = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "booking",
+            "amount",
+            "payment_type",
+            "payment_method",
+            "transaction_date",
+            "recorded_by",
+        ]
+        read_only_fields = ["id", "transaction_date", "recorded_by"]
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Payment amount must be positive.")
+        return value
+
+
+class InitialPaymentSerializer(serializers.Serializer):
+    """Used only for the optional initial payment nested inside booking creation."""
+
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = serializers.ChoiceField(choices=Payment.PaymentMethod.choices)
+    payment_type = serializers.ChoiceField(
+        choices=Payment.PaymentType.choices, default=Payment.PaymentType.ADVANCE
+    )
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Payment amount must be positive.")
+        return value
+
+
+class GuestIntakeSerializer(serializers.Serializer):
+    """Accepts either an existing guest id, or details to create a new guest."""
+
+    id = serializers.UUIDField(required=False)
+    name = serializers.CharField(max_length=255, required=False)
+    phone = serializers.CharField(max_length=20, required=False)
+    aadhar_number = serializers.CharField(
+        max_length=20, required=False, allow_null=True, allow_blank=True
+    )
+
+    def validate(self, attrs):
+        if not attrs.get("id") and not (attrs.get("name") and attrs.get("phone")):
+            raise serializers.ValidationError(
+                "Provide either an existing guest 'id', or 'name' and 'phone' "
+                "to create a new guest."
+            )
+        return attrs
+
+
+class BookingRoomSerializer(serializers.ModelSerializer):
+    room_number = serializers.CharField(source="room.number", read_only=True)
+
+    class Meta:
+        model = BookingRoom
+        fields = ["id", "room", "room_number"]
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    """Read/list serializer with nested rooms, guest, and payments."""
+
+    guest = GuestSerializer(read_only=True)
+    allocated_rooms = BookingRoomSerializer(many=True, read_only=True)
+    payments = PaymentSerializer(many=True, read_only=True)
+    balance_due = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+    amount_paid = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "guest",
+            "source",
+            "ota_reference_id",
+            "profile_tag",
+            "check_in",
+            "check_out",
+            "status",
+            "total_amount",
+            "ota_commission",
+            "net_payout",
+            "cancellation_reason",
+            "created_at",
+            "allocated_rooms",
+            "payments",
+            "balance_due",
+            "amount_paid",
+        ]
+        read_only_fields = ["id", "created_at", "status"]
+
+
+class BookingCreateSerializer(serializers.Serializer):
+    """
+    Write serializer for POST /api/bookings/.
+
+    Handles: creating a guest (or reusing an existing one), validating that
+    none of the requested rooms overlap an existing active booking for the
+    requested date range, creating the booking + room allocations, and
+    optionally logging an initial payment.
+    """
+
+    guest = GuestIntakeSerializer()
+    room_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Room.objects.all(), many=True, write_only=True
+    )
+    source = serializers.ChoiceField(
+        choices=Booking.Source.choices, default=Booking.Source.DIRECT
+    )
+    ota_reference_id = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True
+    )
+    profile_tag = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True
+    )
+    check_in = serializers.DateField()
+    check_out = serializers.DateField()
+    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    ota_commission = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, default=0
+    )
+    net_payout = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False
+    )
+    initial_payment = InitialPaymentSerializer(required=False)
+
+    def validate(self, attrs):
+        check_in = attrs["check_in"]
+        check_out = attrs["check_out"]
+
+        if check_out <= check_in:
+            raise serializers.ValidationError(
+                {"check_out": "check_out must be after check_in."}
+            )
+
+        room_ids = [room.id for room in attrs["room_ids"]]
+        if not room_ids:
+            raise serializers.ValidationError(
+                {"room_ids": "At least one room must be selected."}
+            )
+
+        overlapping = rooms_overlap_queryset(room_ids, check_in, check_out)
+        if overlapping.exists():
+            conflicting_rooms = sorted(
+                {br.room.number for br in overlapping.select_related("room")}
+            )
+            raise serializers.ValidationError(
+                {
+                    "room_ids": (
+                        "The following room(s) are already booked for an "
+                        f"overlapping date range: {', '.join(conflicting_rooms)}."
+                    )
+                }
+            )
+
+        if "net_payout" not in attrs or attrs.get("net_payout") is None:
+            attrs["net_payout"] = attrs["total_amount"] - attrs.get(
+                "ota_commission", 0
+            )
+
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        guest_data = validated_data.pop("guest")
+        room_ids = validated_data.pop("room_ids")
+        initial_payment = validated_data.pop("initial_payment", None)
+
+        if guest_data.get("id"):
+            try:
+                guest = Guest.objects.get(id=guest_data["id"])
+            except Guest.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"guest": {"id": "Guest with this id does not exist."}}
+                )
+        else:
+            guest = Guest.objects.create(
+                name=guest_data["name"],
+                phone=guest_data["phone"],
+                aadhar_number=guest_data.get("aadhar_number"),
+            )
+
+        # Re-validate overlap inside the atomic block + lock rows to close the
+        # race window between the serializer validation and the actual insert.
+        locked_rooms = list(
+            Room.objects.select_for_update().filter(id__in=[r.id for r in room_ids])
+        )
+        overlapping = rooms_overlap_queryset(
+            [r.id for r in locked_rooms],
+            validated_data["check_in"],
+            validated_data["check_out"],
+        )
+        if overlapping.exists():
+            conflicting_rooms = sorted(
+                {br.room.number for br in overlapping.select_related("room")}
+            )
+            raise serializers.ValidationError(
+                {
+                    "room_ids": (
+                        "The following room(s) are already booked for an "
+                        f"overlapping date range: {', '.join(conflicting_rooms)}."
+                    )
+                }
+            )
+
+        booking = Booking.objects.create(guest=guest, **validated_data)
+
+        BookingRoom.objects.bulk_create(
+            [BookingRoom(booking=booking, room=room) for room in locked_rooms]
+        )
+
+        if initial_payment:
+            request = self.context.get("request")
+            Payment.objects.create(
+                booking=booking,
+                amount=initial_payment["amount"],
+                payment_type=initial_payment.get(
+                    "payment_type", Payment.PaymentType.ADVANCE
+                ),
+                payment_method=initial_payment["payment_method"],
+                recorded_by=request.user,
+            )
+
+        return booking
+
+
+class BookingCancelSerializer(serializers.Serializer):
+    cancellation_reason = serializers.CharField(required=False, allow_blank=True)
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = Expense
+        fields = [
+            "id",
+            "date",
+            "category",
+            "job_details",
+            "worker_count",
+            "paid_to",
+            "amount",
+            "materials_purchased",
+            "created_by",
+        ]
+        read_only_fields = ["id", "created_by"]
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Expense amount must be positive.")
+        return value
