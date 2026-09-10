@@ -3,6 +3,7 @@ Django settings for config project.
 """
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -87,7 +88,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-if DATABASE_URL:
+RUNNING_TESTS = "test" in sys.argv
+
+if DATABASE_URL and not RUNNING_TESTS:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
@@ -96,11 +99,17 @@ if DATABASE_URL:
         )
     }
 else:
-    # Fallback for local development before the Neon connection string is provided.
+    # Local SQLite fallback: used before Neon credentials are provided, and
+    # always used for `manage.py test` so the suite stays fast and doesn't
+    # depend on network round-trips or leave orphaned test DBs on Neon.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "NAME": (
+                BASE_DIR / "db.sqlite3"
+                if not RUNNING_TESTS
+                else ":memory:"
+            ),
         }
     }
 
