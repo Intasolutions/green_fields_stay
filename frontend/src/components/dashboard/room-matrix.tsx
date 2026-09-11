@@ -16,6 +16,7 @@ import { SOURCE_STYLES } from "@/lib/source-colors";
 import type { RoomAvailabilityBooking } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Tooltip } from "@/components/ui/tooltip";
+import { SourceLogo } from "@/components/source-logo";
 
 const VISIBLE_DAYS = 14;
 const ROOM_COL_WIDTH = 96;
@@ -222,17 +223,12 @@ export function RoomMatrix({ onNewBooking, onSelectBooking }: RoomMatrixProps) {
 }
 
 function Legend() {
-  const entries = Object.entries(SOURCE_STYLES).filter(([key]) =>
-    ["DIRECT", "MMT", "AGODA", "BOOKING_COM"].includes(key),
-  );
+  const sources = (["DIRECT", "MMT", "AGODA", "BOOKING_COM"] as const);
 
   return (
     <div className="hidden items-center gap-3 border-r border-slate-200 pr-4 md:flex">
-      {entries.map(([key, style]) => (
-        <div key={key} className="flex items-center gap-1.5">
-          <span className={cn("h-2 w-2 rounded-full", style.dot)} />
-          <span className="text-xs text-slate-500">{style.label}</span>
-        </div>
+      {sources.map((source) => (
+        <SourceLogo key={source} source={source} size="xs" withLabel />
       ))}
     </div>
   );

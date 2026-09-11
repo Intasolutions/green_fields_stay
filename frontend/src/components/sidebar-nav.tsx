@@ -8,6 +8,7 @@ import {
   LineChart,
   LogOut,
   Receipt,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -45,7 +46,15 @@ const NAV_ITEMS: NavItem[] = [
     icon: DoorClosed,
     allowedRoles: ["ADMIN"],
   },
+  {
+    href: "/users",
+    label: "Users",
+    icon: Users,
+    allowedRoles: ["ADMIN"],
+  },
 ];
+
+export const SIDEBAR_WIDTH_CLASS = "lg:w-60";
 
 export function SidebarNav() {
   const pathname = usePathname();
@@ -67,15 +76,15 @@ export function SidebarNav() {
   }
 
   return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
+    <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-200 bg-white lg:flex">
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-5 py-4">
         <CalendarDays className="h-5 w-5 text-slate-900" />
         <span className="text-sm font-semibold text-slate-900">
           Green Fields Stay
         </span>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {visibleItems.map((item) => {
           const isActive =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -99,7 +108,7 @@ export function SidebarNav() {
         })}
       </nav>
 
-      <div className="border-t border-slate-200 px-3 py-4">
+      <div className="shrink-0 border-t border-slate-200 px-3 py-4">
         {user && (
           <div className="mb-3 px-3">
             <p className="truncate text-sm font-medium text-slate-900">

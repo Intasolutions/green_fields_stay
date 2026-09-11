@@ -23,11 +23,27 @@ class Room(models.Model):
         NORMAL = "NORMAL", "Normal"
         DELUXE = "DELUXE", "Deluxe"
 
+    class BedType(models.TextChoices):
+        SINGLE = "SINGLE", "Single"
+        DOUBLE = "DOUBLE", "Double"
+        TWIN = "TWIN", "Twin"
+        QUEEN = "QUEEN", "Queen"
+        KING = "KING", "King"
+
     number = models.CharField(max_length=10, unique=True)
     category = models.CharField(
         max_length=20, choices=Category.choices, default=Category.NORMAL
     )
     is_active = models.BooleanField(default=True)
+    max_occupancy = models.PositiveIntegerField(default=2)
+    bed_type = models.CharField(
+        max_length=20, choices=BedType.choices, default=BedType.DOUBLE
+    )
+    extra_bed_allowed = models.BooleanField(default=False)
+    extra_bed_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    amenities = models.TextField(null=True, blank=True)
 
     class Meta:
         ordering = ["number"]
@@ -140,7 +156,6 @@ class Payment(models.Model):
         CASH = "CASH", "Cash"
         UPI = "UPI", "UPI"
         CARD = "CARD", "Card"
-        OTA_VCC = "OTA_VCC", "OTA Virtual Card"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     booking = models.ForeignKey(
@@ -161,17 +176,28 @@ class Payment(models.Model):
         return f"{self.payment_type} {self.amount} for {self.booking_id}"
 
 
-class Expense(models.Model):
-    class Category(models.TextChoices):
-        LABOR = "LABOR", "Labor"
-        MATERIALS = "MATERIALS", "Materials"
-        UTILITIES = "UTILITIES", "Utilities"
-        MAINTENANCE = "MAINTENANCE", "Maintenance"
-        OTHER = "OTHER", "Other"
+class ExpenseCategory(models.Model):
+    """Admin-managed expense categories (e.g. Labor, Materials, Utilities)."""
 
+    name = models.CharField(max_length=100, unique=True)
+    tracks_worker_count = models.BooleanField(default=False)
+    tracks_materials = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "expense categories"
+
+    def __str__(self):
+        return self.name
+
+
+class Expense(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     date = models.DateField()
-    category = models.CharField(max_length=20, choices=Category.choices)
+    category = models.ForeignKey(
+        ExpenseCategory, on_delete=models.PROTECT, related_name="expenses"
+    )
     job_details = models.CharField(max_length=255)
     worker_count = models.IntegerField(null=True, blank=True)
     paid_to = models.CharField(max_length=100)

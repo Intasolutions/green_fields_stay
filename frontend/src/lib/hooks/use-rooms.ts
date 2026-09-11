@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api-client";
-import type { Room, RoomCategory } from "@/lib/types";
+import type { Room, RoomCategory, UpdateRoomPayload } from "@/lib/types";
 
 export function useRooms() {
   return useQuery({
@@ -44,26 +44,36 @@ export function useCreateRoom() {
   });
 }
 
+export interface UpdateRoomVariables extends UpdateRoomPayload {
+  roomId: number;
+  isActive?: boolean;
+  maxOccupancy?: number;
+  bedType?: UpdateRoomPayload["bed_type"];
+  extraBedAllowed?: boolean;
+  extraBedCharge?: string | null;
+}
+
 export function useUpdateRoom() {
   const invalidate = useInvalidateRooms();
 
   return useMutation({
     mutationFn: async ({
       roomId,
-      number,
-      category,
       isActive,
-    }: {
-      roomId: number;
-      number?: string;
-      category?: RoomCategory;
-      isActive?: boolean;
-    }) => {
-      const response = await apiClient.patch<Room>(`/rooms/${roomId}/`, {
-        ...(number !== undefined ? { number } : {}),
-        ...(category !== undefined ? { category } : {}),
-        ...(isActive !== undefined ? { is_active: isActive } : {}),
-      });
+      maxOccupancy,
+      bedType,
+      extraBedAllowed,
+      extraBedCharge,
+      ...rest
+    }: UpdateRoomVariables) => {
+      const payload: UpdateRoomPayload = { ...rest };
+      if (isActive !== undefined) payload.is_active = isActive;
+      if (maxOccupancy !== undefined) payload.max_occupancy = maxOccupancy;
+      if (bedType !== undefined) payload.bed_type = bedType;
+      if (extraBedAllowed !== undefined) payload.extra_bed_allowed = extraBedAllowed;
+      if (extraBedCharge !== undefined) payload.extra_bed_charge = extraBedCharge;
+
+      const response = await apiClient.patch<Room>(`/rooms/${roomId}/`, payload);
       return response.data;
     },
     onSuccess: () => invalidate(),

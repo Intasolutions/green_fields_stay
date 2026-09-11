@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
     BookingViewSet,
+    ExpenseCategoryViewSet,
     ExpenseViewSet,
     FinancialSummaryReportView,
     GuestViewSet,
@@ -11,13 +12,16 @@ from .views import (
     OccupancyReportView,
     RoomAvailabilityView,
     RoomViewSet,
+    UserViewSet,
 )
 
 router = DefaultRouter()
 router.register("bookings", BookingViewSet, basename="booking")
+router.register("expense-categories", ExpenseCategoryViewSet, basename="expense-category")
 router.register("expenses", ExpenseViewSet, basename="expense")
 router.register("guests", GuestViewSet, basename="guest")
 router.register("rooms", RoomViewSet, basename="room")
+router.register("users", UserViewSet, basename="user")
 
 urlpatterns = [
     path("auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),

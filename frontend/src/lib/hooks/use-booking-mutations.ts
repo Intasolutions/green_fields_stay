@@ -7,6 +7,7 @@ import type {
   AddPaymentPayload,
   Booking,
   CreateBookingPayload,
+  EditBookingPayload,
 } from "@/lib/types";
 
 function useInvalidateBookingQueries() {
@@ -60,6 +61,27 @@ export function useCheckOut() {
       const response = await apiClient.patch<Booking>(
         `/bookings/${bookingId}/check-out/`,
         { override_balance: overrideBalance ?? false },
+      );
+      return response.data;
+    },
+    onSuccess: (data) => invalidate(data.id),
+  });
+}
+
+export function useEditBooking() {
+  const invalidate = useInvalidateBookingQueries();
+
+  return useMutation({
+    mutationFn: async ({
+      bookingId,
+      payload,
+    }: {
+      bookingId: string;
+      payload: EditBookingPayload;
+    }) => {
+      const response = await apiClient.patch<Booking>(
+        `/bookings/${bookingId}/`,
+        payload,
       );
       return response.data;
     },

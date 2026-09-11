@@ -7,7 +7,7 @@ import { useCreateBooking } from "@/lib/hooks/use-booking-mutations";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { isValidAadhaar } from "@/lib/aadhaar";
 import { BOOKING_SOURCES, OTA_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
-import { ROOM_CATEGORY_LABELS } from "@/lib/room-categories";
+import { BED_TYPE_LABELS } from "@/lib/room-categories";
 import { addDays, toDateOnly } from "@/lib/date-utils";
 import type {
   BookingSource,
@@ -346,7 +346,7 @@ export function NewBookingModal({
             <p className="mb-1.5 text-xs font-medium text-slate-500">
               Select room(s)
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {rooms.map((room) => {
                 const isSelected = selectedRoomIds.includes(room.id);
                 return (
@@ -354,32 +354,43 @@ export function NewBookingModal({
                     type="button"
                     key={room.id}
                     onClick={() => toggleRoom(room.id)}
-                    title={ROOM_CATEGORY_LABELS[room.category]}
                     className={cn(
-                      "relative flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium transition",
+                      "flex flex-col items-start gap-0.5 rounded-md border px-2.5 py-2 text-left transition",
                       isSelected
                         ? "border-slate-900 bg-slate-900 text-white"
                         : "border-slate-200 text-slate-600 hover:border-slate-400",
                     )}
                   >
-                    {room.number}
-                    {room.category === "DELUXE" && (
-                      <span
-                        className={cn(
-                          "absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-white",
-                          isSelected ? "bg-amber-300" : "bg-amber-500",
-                        )}
-                        aria-hidden
-                      />
-                    )}
+                    <span className="flex w-full items-center justify-between">
+                      <span className="text-sm font-semibold">
+                        Room {room.number}
+                      </span>
+                      {room.category === "DELUXE" && (
+                        <span
+                          className={cn(
+                            "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                            isSelected
+                              ? "bg-amber-300/90 text-amber-950"
+                              : "bg-amber-100 text-amber-700",
+                          )}
+                        >
+                          Deluxe
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-xs",
+                        isSelected ? "text-slate-300" : "text-slate-400",
+                      )}
+                    >
+                      Sleeps {room.max_occupancy} &middot;{" "}
+                      {BED_TYPE_LABELS[room.bed_type]}
+                    </span>
                   </button>
                 );
               })}
             </div>
-            <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-400">
-              <span className="h-2 w-2 rounded-full bg-amber-500" />
-              Deluxe room
-            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Check-in" required>

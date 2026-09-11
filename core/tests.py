@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Booking, BookingRoom, Expense, Payment, Room
+from .models import Booking, BookingRoom, Expense, ExpenseCategory, Payment, Room
 
 User = get_user_model()
 
@@ -33,6 +33,13 @@ class BaseAPITestCase(APITestCase):
         self.room1 = Room.objects.get(number="1")
         self.room2 = Room.objects.get(number="2")
         self.room3 = Room.objects.get(number="3")
+
+        # The 5 default expense categories are seeded by a data migration.
+        self.labor_category = ExpenseCategory.objects.get(name="Labor")
+        self.materials_category = ExpenseCategory.objects.get(name="Materials")
+        self.utilities_category = ExpenseCategory.objects.get(name="Utilities")
+        self.maintenance_category = ExpenseCategory.objects.get(name="Maintenance")
+        self.other_category = ExpenseCategory.objects.get(name="Other")
 
         self.client.force_authenticate(user=self.user)
 
@@ -786,10 +793,10 @@ class ExpensePermissionTests(BaseAPITestCase):
             url,
             {
                 "date": date.today().isoformat(),
-                "category": "LABOR",
+                "category": self.labor_category.id,
                 "job_details": "Roof repair",
                 "worker_count": 3,
-                "paid_to": "Natraj",
+                "paid_to": "Vendor A",
                 "amount": "4500.00",
             },
             format="json",
@@ -803,10 +810,10 @@ class ExpensePermissionTests(BaseAPITestCase):
             url,
             {
                 "date": date.today().isoformat(),
-                "category": "LABOR",
+                "category": self.labor_category.id,
                 "job_details": "Roof repair",
                 "worker_count": 3,
-                "paid_to": "Natraj",
+                "paid_to": "Vendor A",
                 "amount": "4500.00",
             },
             format="json",
@@ -824,25 +831,25 @@ class ExpensePermissionTests(BaseAPITestCase):
         self.client.force_authenticate(user=self.manager)
         Expense.objects.create(
             date=date(2026, 1, 5),
-            category=Expense.Category.LABOR,
+            category=self.labor_category,
             job_details="Painting",
-            paid_to="Ravi",
+            paid_to="Vendor A",
             amount=Decimal("1000.00"),
             created_by=self.manager,
         )
         Expense.objects.create(
             date=date(2026, 1, 20),
-            category=Expense.Category.MATERIALS,
+            category=self.materials_category,
             job_details="Cement bags",
-            paid_to="Supplier",
+            paid_to="Supplier Co",
             amount=Decimal("2000.00"),
             created_by=self.manager,
         )
         Expense.objects.create(
             date=date(2026, 2, 5),
-            category=Expense.Category.LABOR,
+            category=self.labor_category,
             job_details="Outside window range",
-            paid_to="Ravi",
+            paid_to="Vendor A",
             amount=Decimal("500.00"),
             created_by=self.manager,
         )
@@ -850,7 +857,11 @@ class ExpensePermissionTests(BaseAPITestCase):
         url = reverse("expense-list")
         response = self.client.get(
             url,
-            {"from_date": "2026-01-01", "to_date": "2026-01-31", "category": "LABOR"},
+            {
+                "from_date": "2026-01-01",
+                "to_date": "2026-01-31",
+                "category": self.labor_category.id,
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1084,26 +1095,26 @@ class FinancialSummaryReportTests(BaseAPITestCase):
         )
         Expense.objects.create(
             date=date(2026, 3, 6),
-            category=Expense.Category.LABOR,
+            category=self.labor_category,
             job_details="Wages",
-            paid_to="Natraj",
+            paid_to="Vendor A",
             amount=Decimal("2000.00"),
             created_by=self.admin,
         )
         Expense.objects.create(
             date=date(2026, 3, 15),
-            category=Expense.Category.MATERIALS,
+            category=self.materials_category,
             job_details="Sheets",
-            paid_to="Supplier",
+            paid_to="Supplier Co",
             amount=Decimal("1500.00"),
             created_by=self.admin,
         )
         # Outside the report window - must not be counted.
         Expense.objects.create(
             date=date(2026, 4, 1),
-            category=Expense.Category.LABOR,
+            category=self.labor_category,
             job_details="Later month",
-            paid_to="Natraj",
+            paid_to="Vendor A",
             amount=Decimal("999.00"),
             created_by=self.admin,
         )
@@ -1115,12 +1126,12 @@ class FinancialSummaryReportTests(BaseAPITestCase):
         data = response.data
         self.assertEqual(Decimal(data["total_expenses"]), Decimal("3500.00"))
         self.assertEqual(
-            Decimal(data["expenses_by_category"]["LABOR"]), Decimal("2000.00")
+            Decimal(data["expenses_by_category"]["Labor"]), Decimal("2000.00")
         )
         self.assertEqual(
-            Decimal(data["expenses_by_category"]["MATERIALS"]), Decimal("1500.00")
+            Decimal(data["expenses_by_category"]["Materials"]), Decimal("1500.00")
         )
-        self.assertEqual(Decimal(data["expenses_by_category"]["UTILITIES"]), Decimal("0"))
+        self.assertEqual(Decimal(data["expenses_by_category"]["Utilities"]), Decimal("0"))
         self.assertEqual(
             Decimal(data["total_net_payout"]), Decimal("10000.00")
         )
@@ -1410,3 +1421,321 @@ class RoomManagementTests(BaseAPITestCase):
 
         room_numbers = [r["room"]["number"] for r in response.data]
         self.assertNotIn("1", room_numbers)
+
+
+class BookingEditTests(BaseAPITestCase):
+    def _create_booking(self, room, check_in, check_out, **overrides):
+        url = reverse("booking-list")
+        payload = self.make_booking_payload(
+            [room.id], check_in, check_out, **overrides
+        )
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        return response.data
+
+    def test_receptionist_cannot_edit_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.patch(url, {"total_amount": "9999.00"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_cannot_edit_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.patch(url, {"total_amount": "9999.00"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_edit_booking_amount(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.patch(
+            url,
+            {"total_amount": "6500.00", "net_payout": "6500.00"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["total_amount"], "6500.00")
+
+    def test_admin_can_edit_booking_dates_without_conflict(self):
+        base = date.today() + timedelta(days=10)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.patch(
+            url,
+            {
+                "check_in": (base + timedelta(days=1)).isoformat(),
+                "check_out": (base + timedelta(days=3)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+    def test_admin_edit_blocked_by_overlap_with_other_booking(self):
+        base = date.today() + timedelta(days=10)
+        first = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        # A second, separate booking on the same room right after the first.
+        self._create_booking(
+            self.room1, base + timedelta(days=5), base + timedelta(days=7)
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-detail", args=[first["id"]])
+        response = self.client.patch(
+            url,
+            {
+                "check_in": (base + timedelta(days=5)).isoformat(),
+                "check_out": (base + timedelta(days=6)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_edit_rejects_check_out_before_check_in(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.patch(
+            url,
+            {
+                "check_in": (base + timedelta(days=5)).isoformat(),
+                "check_out": base.isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_guest_and_rooms_not_editable_via_edit_endpoint(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.patch(
+            url,
+            {"profile_tag": "Updated tag"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["profile_tag"], "Updated tag")
+        self.assertEqual(response.data["guest"]["name"], "John Doe")
+
+
+class UserManagementTests(BaseAPITestCase):
+    def test_receptionist_cannot_list_users(self):
+        url = reverse("user-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_cannot_list_users(self):
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("user-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_list_users(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("user-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        usernames = {u["username"] for u in response.data}
+        self.assertIn("admin1", usernames)
+
+    def test_admin_can_create_user(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("user-list")
+        response = self.client.post(
+            url,
+            {
+                "username": "new_receptionist",
+                "password": "securepass123",
+                "role": User.Role.RECEPTIONIST,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        created = User.objects.get(username="new_receptionist")
+        self.assertTrue(created.check_password("securepass123"))
+        self.assertEqual(created.role, User.Role.RECEPTIONIST)
+
+    def test_admin_can_change_user_role(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("user-detail", args=[self.user.id])
+        response = self.client.patch(
+            url, {"role": User.Role.MANAGER}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.MANAGER)
+
+    def test_admin_can_deactivate_other_user(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("user-detail", args=[self.user.id])
+        response = self.client.patch(url, {"is_active": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_active)
+
+    def test_admin_cannot_deactivate_own_account(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("user-detail", args=[self.admin.id])
+        response = self.client.patch(url, {"is_active": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_admin_cannot_create_user(self):
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("user-list")
+        response = self.client.post(
+            url,
+            {
+                "username": "sneaky",
+                "password": "securepass123",
+                "role": User.Role.ADMIN,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ExpenseCategoryManagementTests(BaseAPITestCase):
+    def test_manager_can_list_categories(self):
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("expense-category-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = {c["name"] for c in response.data}
+        self.assertIn("Labor", names)
+
+    def test_receptionist_cannot_list_categories(self):
+        url = reverse("expense-category-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_cannot_create_category(self):
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("expense-category-list")
+        response = self.client.post(url, {"name": "Marketing"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_create_category(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("expense-category-list")
+        response = self.client.post(
+            url,
+            {"name": "Marketing", "tracks_worker_count": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["name"], "Marketing")
+
+    def test_admin_can_deactivate_category(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("expense-category-detail", args=[self.other_category.id])
+        response = self.client.patch(url, {"is_active": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(response.data["is_active"])
+
+    def test_expense_create_returns_category_detail(self):
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("expense-list")
+        response = self.client.post(
+            url,
+            {
+                "date": date.today().isoformat(),
+                "category": self.labor_category.id,
+                "job_details": "Test",
+                "paid_to": "Vendor A",
+                "amount": "1000.00",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["category_detail"]["name"], "Labor")
+
+
+class RoomSpecificationTests(BaseAPITestCase):
+    def test_room_defaults(self):
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["max_occupancy"], 2)
+        self.assertEqual(response.data["bed_type"], "DOUBLE")
+        self.assertFalse(response.data["extra_bed_allowed"])
+
+    def test_admin_can_set_room_specification(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(
+            url,
+            {
+                "max_occupancy": 4,
+                "bed_type": "KING",
+                "extra_bed_allowed": True,
+                "extra_bed_charge": "500.00",
+                "amenities": "AC, Balcony, Sea view",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["max_occupancy"], 4)
+        self.assertEqual(response.data["bed_type"], "KING")
+        self.assertEqual(response.data["extra_bed_charge"], "500.00")
+
+    def test_extra_bed_allowed_requires_charge(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(
+            url, {"extra_bed_allowed": True}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_availability_includes_room_specification(self):
+        self.client.force_authenticate(user=self.admin)
+        room_url = reverse("room-detail", args=[self.room1.id])
+        self.client.patch(
+            room_url,
+            {"max_occupancy": 5, "bed_type": "QUEEN"},
+            format="json",
+        )
+
+        availability_url = reverse("room-availability")
+        response = self.client.get(
+            availability_url,
+            {
+                "start_date": date.today().isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
+        )
+
+        room1_entry = next(
+            r for r in response.data if r["room"]["number"] == "1"
+        )
+        self.assertEqual(room1_entry["room"]["max_occupancy"], 5)
+        self.assertEqual(room1_entry["room"]["bed_type"], "QUEEN")

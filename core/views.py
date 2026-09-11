@@ -11,16 +11,29 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Booking, BookingRoom, Expense, Guest, Payment, Room
+from .models import (
+    Booking,
+    BookingRoom,
+    Expense,
+    ExpenseCategory,
+    Guest,
+    Payment,
+    Room,
+    User,
+)
 from .permissions import IsAdmin, IsManagerOrAdmin
 from .serializers import (
     BookingCancelSerializer,
     BookingCreateSerializer,
+    BookingEditSerializer,
     BookingSerializer,
+    ExpenseCategorySerializer,
     ExpenseSerializer,
     GuestSerializer,
     PaymentSerializer,
     RoomSerializer,
+    UserCreateSerializer,
+    UserManagementSerializer,
     UserSerializer,
 )
 
@@ -49,6 +62,26 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    """Admin-only staff account management: list, create, edit role/status."""
+
+    queryset = User.objects.all().order_by("username")
+    permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = None
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return UserCreateSerializer
+        return UserManagementSerializer
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance == request.user and request.data.get("is_active") is False:
+            raise ValidationError("You cannot deactivate your own account.")
+        return super().partial_update(request, *args, **kwargs)
 
 
 class RoomAvailabilityView(APIView):
@@ -142,14 +175,25 @@ class BookingViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_permissions(self):
-        if self.action == "cancel":
+        if self.action in ("cancel", "partial_update"):
             return [IsAuthenticated(), IsAdmin()]
         return super().get_permissions()
 
     def get_serializer_class(self):
         if self.action == "create":
             return BookingCreateSerializer
+        if self.action == "partial_update":
+            return BookingEditSerializer
         return BookingSerializer
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(BookingSerializer(instance).data)
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -254,8 +298,28 @@ class BookingViewSet(viewsets.ModelViewSet):
         )
 
 
+class ExpenseCategoryViewSet(viewsets.ModelViewSet):
+    """Admin-managed expense categories; readable by Manager/Admin for the expense form."""
+
+    queryset = ExpenseCategory.objects.all()
+    serializer_class = ExpenseCategorySerializer
+    pagination_class = None
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsManagerOrAdmin()]
+        return [IsAuthenticated(), IsAdmin()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == "list" and self.request.query_params.get("active_only"):
+            qs = qs.filter(is_active=True)
+        return qs
+
+
 class ExpenseViewSet(viewsets.ModelViewSet):
-    queryset = Expense.objects.all()
+    queryset = Expense.objects.select_related("category")
     serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated, IsManagerOrAdmin]
 
@@ -331,9 +395,11 @@ class FinancialSummaryReportView(APIView):
         expenses = Expense.objects.filter(date__gte=date_from, date__lte=date_to)
         expense_total = expenses.aggregate(total=Sum("amount"))["total"] or 0
 
-        expenses_by_category = {choice: 0 for choice, _ in Expense.Category.choices}
-        for row in expenses.values("category").annotate(total=Sum("amount")):
-            expenses_by_category[row["category"]] = row["total"]
+        expenses_by_category = {
+            name: 0 for name in ExpenseCategory.objects.values_list("name", flat=True)
+        }
+        for row in expenses.values("category__name").annotate(total=Sum("amount")):
+            expenses_by_category[row["category__name"]] = row["total"]
 
         total_net_payout = booking_totals["total_net_payout"] or 0
         net_profit = total_net_payout - expense_total

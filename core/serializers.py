@@ -3,7 +3,17 @@ import re
 from django.db import models, transaction
 from rest_framework import serializers
 
-from .models import Booking, BookingRoom, Companion, Expense, Guest, Payment, Room, User
+from .models import (
+    Booking,
+    BookingRoom,
+    Companion,
+    Expense,
+    ExpenseCategory,
+    Guest,
+    Payment,
+    Room,
+    User,
+)
 
 AADHAAR_PATTERN = re.compile(r"^\d{12}$")
 
@@ -16,10 +26,64 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "username", "email", "first_name", "last_name", "role"]
 
 
+class UserManagementSerializer(serializers.ModelSerializer):
+    """Admin-only staff account listing/editing (role, active status)."""
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "role",
+            "is_active",
+            "date_joined",
+        ]
+        read_only_fields = ["id", "date_joined"]
+
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    """Admin-only staff account creation."""
+
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "role",
+            "password",
+        ]
+        read_only_fields = ["id"]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
+
+
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ["id", "number", "category", "is_active"]
+        fields = [
+            "id",
+            "number",
+            "category",
+            "is_active",
+            "max_occupancy",
+            "bed_type",
+            "extra_bed_allowed",
+            "extra_bed_charge",
+            "amenities",
+        ]
 
     def validate(self, attrs):
         is_active = attrs.get("is_active")
@@ -45,6 +109,24 @@ class RoomSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+
+        extra_bed_allowed = attrs.get(
+            "extra_bed_allowed",
+            self.instance.extra_bed_allowed if self.instance else False,
+        )
+        extra_bed_charge = attrs.get(
+            "extra_bed_charge",
+            self.instance.extra_bed_charge if self.instance else None,
+        )
+        if extra_bed_allowed and not extra_bed_charge:
+            raise serializers.ValidationError(
+                {
+                    "extra_bed_charge": (
+                        "Set an extra bed charge when extra beds are allowed."
+                    )
+                }
+            )
+
         return attrs
 
 
@@ -142,10 +224,11 @@ class GuestIntakeSerializer(serializers.Serializer):
 
 class BookingRoomSerializer(serializers.ModelSerializer):
     room_number = serializers.CharField(source="room.number", read_only=True)
+    room_detail = RoomSerializer(source="room", read_only=True)
 
     class Meta:
         model = BookingRoom
-        fields = ["id", "room", "room_number"]
+        fields = ["id", "room", "room_number", "room_detail"]
 
 
 class CompanionSerializer(serializers.ModelSerializer):
@@ -357,8 +440,77 @@ class BookingCancelSerializer(serializers.Serializer):
     cancellation_reason = serializers.CharField(required=False, allow_blank=True)
 
 
+class BookingEditSerializer(serializers.ModelSerializer):
+    """
+    Admin-only correction endpoint for a booking already created - rate
+    fixes, date changes, source/tag corrections. Guest and room allocation
+    are intentionally not editable here; cancel + rebook covers changing
+    which rooms a booking occupies.
+    """
+
+    class Meta:
+        model = Booking
+        fields = [
+            "source",
+            "ota_reference_id",
+            "profile_tag",
+            "check_in",
+            "check_out",
+            "total_amount",
+            "ota_commission",
+            "net_payout",
+        ]
+
+    def validate(self, attrs):
+        check_in = attrs.get("check_in", self.instance.check_in)
+        check_out = attrs.get("check_out", self.instance.check_out)
+
+        if check_out <= check_in:
+            raise serializers.ValidationError(
+                {"check_out": "check_out must be after check_in."}
+            )
+
+        if "check_in" in attrs or "check_out" in attrs:
+            room_ids = [
+                br.room_id for br in self.instance.allocated_rooms.all()
+            ]
+            overlapping = rooms_overlap_queryset(
+                room_ids, check_in, check_out, exclude_booking_id=self.instance.id
+            )
+            if overlapping.exists():
+                conflicting_rooms = sorted(
+                    {br.room.number for br in overlapping.select_related("room")}
+                )
+                raise serializers.ValidationError(
+                    {
+                        "check_in": (
+                            "The following room(s) already have an overlapping "
+                            f"booking for these dates: {', '.join(conflicting_rooms)}."
+                        )
+                    }
+                )
+
+        return attrs
+
+
+class ExpenseCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExpenseCategory
+        fields = [
+            "id",
+            "name",
+            "tracks_worker_count",
+            "tracks_materials",
+            "is_active",
+        ]
+
+
 class ExpenseSerializer(serializers.ModelSerializer):
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=ExpenseCategory.objects.all()
+    )
+    category_detail = ExpenseCategorySerializer(source="category", read_only=True)
 
     class Meta:
         model = Expense
@@ -366,6 +518,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "id",
             "date",
             "category",
+            "category_detail",
             "job_details",
             "worker_count",
             "paid_to",

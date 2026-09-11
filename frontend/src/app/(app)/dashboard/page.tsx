@@ -6,6 +6,7 @@ import { BookingDetailModal } from "@/components/dashboard/booking-detail-modal"
 import { NewBookingModal } from "@/components/dashboard/new-booking-modal";
 import { RoomMatrix } from "@/components/dashboard/room-matrix";
 import { StatCards } from "@/components/dashboard/stat-cards";
+import { TodaysSchedule } from "@/components/dashboard/todays-schedule";
 import { addDays, toDateOnly } from "@/lib/date-utils";
 import { useRoomAvailability } from "@/lib/hooks/use-room-availability";
 
@@ -40,6 +41,8 @@ export default function DashboardPage() {
       </div>
 
       <StatCards />
+
+      <TodaysSchedule onSelectBooking={setSelectedBookingId} />
 
       <RoomMatrix
         onNewBooking={(params) => setNewBookingState(params ?? {})}

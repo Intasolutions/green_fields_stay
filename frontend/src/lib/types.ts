@@ -9,6 +9,26 @@ export interface CurrentUser {
   role: UserRole;
 }
 
+export interface StaffUser {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: UserRole;
+  is_active: boolean;
+  date_joined: string;
+}
+
+export interface CreateStaffUserPayload {
+  username: string;
+  password: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  role: UserRole;
+}
+
 export interface TokenPair {
   access: string;
   refresh: string;
@@ -29,15 +49,32 @@ export type BookingStatus =
   | "CANCELLED";
 
 export type PaymentType = "ADVANCE" | "SETTLEMENT" | "FULL" | "REFUND";
-export type PaymentMethod = "CASH" | "UPI" | "CARD" | "OTA_VCC";
+export type PaymentMethod = "CASH" | "UPI" | "CARD";
 
 export type RoomCategory = "NORMAL" | "DELUXE";
+export type BedType = "SINGLE" | "DOUBLE" | "TWIN" | "QUEEN" | "KING";
 
 export interface Room {
   id: number;
   number: string;
   category: RoomCategory;
   is_active: boolean;
+  max_occupancy: number;
+  bed_type: BedType;
+  extra_bed_allowed: boolean;
+  extra_bed_charge: string | null;
+  amenities: string | null;
+}
+
+export interface UpdateRoomPayload {
+  number?: string;
+  category?: RoomCategory;
+  is_active?: boolean;
+  max_occupancy?: number;
+  bed_type?: BedType;
+  extra_bed_allowed?: boolean;
+  extra_bed_charge?: string | null;
+  amenities?: string | null;
 }
 
 export interface RoomAvailabilityBooking {
@@ -79,6 +116,7 @@ export interface BookingRoomAllocation {
   id: number;
   room: number;
   room_number: string;
+  room_detail: Room;
 }
 
 export interface Companion {
@@ -139,23 +177,36 @@ export interface CreateBookingPayload {
   };
 }
 
+export interface EditBookingPayload {
+  source?: BookingSource;
+  ota_reference_id?: string | null;
+  profile_tag?: string | null;
+  check_in?: string;
+  check_out?: string;
+  total_amount?: string;
+  ota_commission?: string;
+  net_payout?: string;
+}
+
 export interface AddPaymentPayload {
   amount: string;
   payment_type: PaymentType;
   payment_method: PaymentMethod;
 }
 
-export type ExpenseCategory =
-  | "LABOR"
-  | "MATERIALS"
-  | "UTILITIES"
-  | "MAINTENANCE"
-  | "OTHER";
+export interface ExpenseCategory {
+  id: number;
+  name: string;
+  tracks_worker_count: boolean;
+  tracks_materials: boolean;
+  is_active: boolean;
+}
 
 export interface Expense {
   id: string;
   date: string;
-  category: ExpenseCategory;
+  category: number;
+  category_detail: ExpenseCategory;
   job_details: string;
   worker_count: number | null;
   paid_to: string;
@@ -166,7 +217,7 @@ export interface Expense {
 
 export interface CreateExpensePayload {
   date: string;
-  category: ExpenseCategory;
+  category: number;
   job_details: string;
   worker_count?: number | null;
   paid_to: string;
@@ -185,7 +236,7 @@ export interface FinancialSummaryReport {
   total_ota_commissions: number;
   total_net_payout: number;
   total_expenses: number;
-  expenses_by_category: Record<ExpenseCategory, number>;
+  expenses_by_category: Record<string, number>;
   net_profit: number;
   booking_count: number;
   average_booking_value: number;

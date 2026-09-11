@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban } from "lucide-react";
+import { Ban, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { useBooking } from "@/lib/hooks/use-bookings";
@@ -13,13 +13,15 @@ import {
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { nightsBetween } from "@/lib/date-utils";
-import { SOURCE_STYLES } from "@/lib/source-colors";
+import { BED_TYPE_LABELS } from "@/lib/room-categories";
 import type { PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Modal } from "@/components/ui/modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/status-badge";
+import { SourceLogo } from "@/components/source-logo";
+import { EditBookingModal } from "@/components/dashboard/edit-booking-modal";
 
 interface BookingDetailModalProps {
   bookingId: string;
@@ -45,6 +47,7 @@ export function BookingDetailModal({
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [cancellationReason, setCancellationReason] = useState("");
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const isMutating = checkIn.isPending || checkOut.isPending || cancelBooking.isPending;
 
@@ -120,6 +123,8 @@ export function BookingDetailModal({
     booking.status !== "CHECKED_OUT" &&
     booking.status !== "CANCELLED";
 
+  const canEdit = currentUser?.role === "ADMIN" && booking;
+
   return (
     <>
       <Modal title="Booking Details" onClose={onClose}>
@@ -147,7 +152,18 @@ export function BookingDetailModal({
                   </p>
                 )}
               </div>
-              <StatusBadge status={booking.status} />
+              <div className="flex items-center gap-2">
+                <StatusBadge status={booking.status} />
+                {canEdit && (
+                  <button
+                    onClick={() => setShowEditModal(true)}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Edit booking"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {booking.companions.length > 0 && (
@@ -189,19 +205,34 @@ export function BookingDetailModal({
                 label="Nights"
                 value={String(nightsBetween(booking.check_in, booking.check_out))}
               />
-              <InfoRow
-                label="Rooms"
-                value={booking.allocated_rooms
-                  .map((r) => r.room_number)
-                  .join(", ")}
-              />
-              <InfoRow
-                label="Source"
-                value={SOURCE_STYLES[booking.source].label}
-              />
+              <div>
+                <p className="text-xs text-slate-400">Source</p>
+                <SourceLogo source={booking.source} size="xs" withLabel className="mt-0.5" />
+              </div>
               {booking.ota_reference_id && (
                 <InfoRow label="OTA Ref" value={booking.ota_reference_id} />
               )}
+            </div>
+
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-slate-500">Rooms</p>
+              <ul className="space-y-1.5">
+                {booking.allocated_rooms.map((allocation) => (
+                  <li
+                    key={allocation.id}
+                    className="flex items-center justify-between rounded-md bg-slate-50 px-2.5 py-1.5 text-sm"
+                  >
+                    <span className="font-medium text-slate-700">
+                      Room {allocation.room_number}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {allocation.room_detail.category === "DELUXE" && "Deluxe · "}
+                      Sleeps {allocation.room_detail.max_occupancy} &middot;{" "}
+                      {BED_TYPE_LABELS[allocation.room_detail.bed_type]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="rounded-lg border border-slate-200 p-3">
@@ -408,6 +439,13 @@ export function BookingDetailModal({
             </div>
           </div>
         </div>
+      )}
+
+      {showEditModal && booking && (
+        <EditBookingModal
+          booking={booking}
+          onClose={() => setShowEditModal(false)}
+        />
       )}
     </>
   );

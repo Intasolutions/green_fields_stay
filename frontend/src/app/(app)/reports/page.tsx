@@ -4,7 +4,9 @@ import { Download, Printer } from "lucide-react";
 import { useState } from "react";
 
 import { RequireRole } from "@/components/require-role";
+import { SourceLogo } from "@/components/source-logo";
 import { useToast } from "@/components/ui/toast";
+import { FilterBar, FilterField } from "@/components/ui/filter-bar";
 import {
   addDays,
   endOfMonth,
@@ -14,18 +16,15 @@ import {
   toDateOnly,
 } from "@/lib/date-utils";
 import { downloadCsv } from "@/lib/csv-export";
-import {
-  EXPENSE_CATEGORIES,
-  EXPENSE_CATEGORY_DOT,
-  EXPENSE_CATEGORY_LABELS,
-} from "@/lib/expense-categories";
+import { expenseCategoryDotColor } from "@/lib/expense-category-colors";
+import { useExpenseCategories } from "@/lib/hooks/use-expenses";
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/payment-methods";
-import { BOOKING_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
+import { BOOKING_SOURCES } from "@/lib/source-colors";
 import {
   useFinancialSummaryReport,
   useOccupancyReport,
 } from "@/lib/hooks/use-reports";
-import type { FinancialSummaryReport, OccupancyReport } from "@/lib/types";
+import type { ExpenseCategory, FinancialSummaryReport, OccupancyReport } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 const DEFAULT_RANGE = getCurrentMonthRange();
@@ -66,6 +65,7 @@ function formatCurrency(value: number): string {
 function buildReportCsvRows(
   financial: FinancialSummaryReport,
   occupancy: OccupancyReport,
+  categories: ExpenseCategory[],
 ): (string | number)[][] {
   const rows: (string | number)[][] = [
     ["Report Period", `${financial.from} to ${financial.to}`],
@@ -82,7 +82,7 @@ function buildReportCsvRows(
     [],
     ["Bookings by Source", "Count", "Revenue"],
     ...BOOKING_SOURCES.map((source) => [
-      SOURCE_STYLES[source].label,
+      source,
       financial.bookings_by_source[source] ?? 0,
       financial.revenue_by_source[source] ?? 0,
     ]),
@@ -94,9 +94,9 @@ function buildReportCsvRows(
     ]),
     [],
     ["Expenses by Category", "Amount"],
-    ...EXPENSE_CATEGORIES.map((category) => [
-      EXPENSE_CATEGORY_LABELS[category],
-      financial.expenses_by_category[category] ?? 0,
+    ...categories.map((category) => [
+      category.name,
+      financial.expenses_by_category[category.name] ?? 0,
     ]),
     [],
     ["Occupancy", ""],
@@ -130,6 +130,7 @@ function ReportsPageContent() {
 
   const financial = useFinancialSummaryReport(from, to);
   const occupancy = useOccupancyReport(from, to);
+  const { data: categories } = useExpenseCategories();
 
   function applyPreset(getRange: () => { from: string; to: string }) {
     const range = getRange();
@@ -139,71 +140,79 @@ function ReportsPageContent() {
 
   function handleDownloadCsv() {
     if (!financial.data || !occupancy.data) return;
-    const rows = buildReportCsvRows(financial.data, occupancy.data);
+    const rows = buildReportCsvRows(financial.data, occupancy.data, categories ?? []);
     downloadCsv(`report_${from}_to_${to}.csv`, rows);
     showToast("Report exported.");
   }
 
   return (
-    <div className="space-y-6 print:space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-4 print:block">
+    <div className="space-y-5 print:space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
         <div>
-          <h1 className="text-lg font-semibold text-slate-900 print:text-black">
-            Reports
-          </h1>
-          <p className="mt-1 text-sm text-slate-500 print:hidden">
+          <h1 className="text-lg font-semibold text-slate-900">Reports</h1>
+          <p className="mt-1 text-sm text-slate-500">
             Financial summary and occupancy for the selected date range.
           </p>
-          <p className="mt-1 hidden text-sm text-black print:block">
-            {from} to {to}
-          </p>
         </div>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => applyPreset(preset.getRange)}
-              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              {preset.label}
-            </button>
-          ))}
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="input w-auto"
-          />
-          <span className="text-sm text-slate-400">to</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="input w-auto"
-          />
+      <p className="hidden text-sm text-black print:block">
+        Report period: {from} to {to}
+      </p>
+
+      <FilterBar className="print:hidden">
+        {PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            onClick={() => applyPreset(preset.getRange)}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {preset.label}
+          </button>
+        ))}
+
+        <FilterField label="Date range">
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="input w-auto"
+            />
+            <span className="text-xs text-slate-400">to</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="input w-auto"
+            />
+          </div>
+        </FilterField>
+
+        <div className="ml-auto flex items-center gap-2">
           <button
             onClick={handleDownloadCsv}
             disabled={!financial.data || !occupancy.data}
             className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
-            Download CSV
+            CSV
           </button>
           <button
             onClick={() => window.print()}
             className="flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
           >
             <Printer className="h-4 w-4" />
-            Print Report
+            Print / PDF
           </button>
         </div>
-      </div>
+      </FilterBar>
 
       <FinancialSummarySection
         data={financial.data}
         isPending={financial.isPending}
         isError={financial.isError}
+        categories={categories ?? []}
       />
 
       <OccupancySection
@@ -219,10 +228,12 @@ function FinancialSummarySection({
   data,
   isPending,
   isError,
+  categories,
 }: {
   data: ReturnType<typeof useFinancialSummaryReport>["data"];
   isPending: boolean;
   isError: boolean;
+  categories: ExpenseCategory[];
 }) {
   return (
     <section className="print:break-inside-avoid">
@@ -293,13 +304,7 @@ function FinancialSummarySection({
                       className="flex items-center justify-between py-2 text-sm"
                     >
                       <span className="flex items-center gap-2 text-slate-600 print:text-black">
-                        <span
-                          className={cn(
-                            "h-2 w-2 rounded-full print:hidden",
-                            SOURCE_STYLES[source].dot,
-                          )}
-                        />
-                        {SOURCE_STYLES[source].label}
+                        <SourceLogo source={source} size="xs" withLabel />
                         <span className="text-xs text-slate-400 print:text-black">
                           &times;{count}
                         </span>
@@ -339,27 +344,31 @@ function FinancialSummarySection({
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 print:text-black">
               Expenses by Category
             </h3>
-            <ul className="divide-y divide-slate-100 print:divide-black/20">
-              {EXPENSE_CATEGORIES.map((category) => (
-                <li
-                  key={category}
-                  className="flex items-center justify-between py-2 text-sm"
-                >
-                  <span className="flex items-center gap-2 text-slate-600 print:text-black">
-                    <span
-                      className={cn(
-                        "h-2 w-2 rounded-full print:hidden",
-                        EXPENSE_CATEGORY_DOT[category],
-                      )}
-                    />
-                    {EXPENSE_CATEGORY_LABELS[category]}
-                  </span>
-                  <span className="font-medium text-slate-900 print:text-black">
-                    {formatCurrency(data.expenses_by_category[category] ?? 0)}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {categories.length === 0 ? (
+              <p className="text-sm text-slate-400">No categories yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100 print:divide-black/20">
+                {categories.map((category) => (
+                  <li
+                    key={category.id}
+                    className="flex items-center justify-between py-2 text-sm"
+                  >
+                    <span className="flex items-center gap-2 text-slate-600 print:text-black">
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full print:hidden",
+                          expenseCategoryDotColor(category.id),
+                        )}
+                      />
+                      {category.name}
+                    </span>
+                    <span className="font-medium text-slate-900 print:text-black">
+                      {formatCurrency(data.expenses_by_category[category.name] ?? 0)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}
