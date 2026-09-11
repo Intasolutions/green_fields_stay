@@ -7,7 +7,12 @@ import { RequireRole } from "@/components/require-role";
 import { useToast } from "@/components/ui/toast";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { useCreateRoom, useRooms, useUpdateRoom } from "@/lib/hooks/use-rooms";
-import type { Room } from "@/lib/types";
+import {
+  ROOM_CATEGORIES,
+  ROOM_CATEGORY_BADGE,
+  ROOM_CATEGORY_LABELS,
+} from "@/lib/room-categories";
+import type { Room, RoomCategory } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 export default function RoomsPage() {
@@ -22,8 +27,10 @@ function RoomsPageContent() {
   const { data: rooms, isPending, isError } = useRooms();
   const { showToast } = useToast();
   const [newRoomNumber, setNewRoomNumber] = useState("");
+  const [newRoomCategory, setNewRoomCategory] = useState<RoomCategory>("NORMAL");
   const [addError, setAddError] = useState<string | null>(null);
   const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<RoomCategory | "">("");
 
   const createRoom = useCreateRoom();
   const updateRoom = useUpdateRoom();
@@ -39,7 +46,7 @@ function RoomsPageContent() {
     }
 
     try {
-      await createRoom.mutateAsync(trimmed);
+      await createRoom.mutateAsync({ number: trimmed, category: newRoomCategory });
       setNewRoomNumber("");
       showToast(`Room ${trimmed} added.`);
     } catch (err) {
@@ -71,14 +78,17 @@ function RoomsPageContent() {
   }
 
   const activeCount = rooms?.filter((r) => r.is_active).length ?? 0;
+  const visibleRooms = categoryFilter
+    ? rooms?.filter((r) => r.category === categoryFilter)
+    : rooms;
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-semibold text-slate-900">Rooms</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Add rooms to the property, rename them, or deactivate rooms that are
-          temporarily out of service (e.g. under maintenance).
+          Add rooms to the property, rename them, set their category, or
+          deactivate rooms that are temporarily out of service.
         </p>
       </div>
 
@@ -98,6 +108,24 @@ function RoomsPageContent() {
                 placeholder="e.g. 12"
                 className="input"
               />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-500">
+                Category
+              </span>
+              <select
+                value={newRoomCategory}
+                onChange={(e) =>
+                  setNewRoomCategory(e.target.value as RoomCategory)
+                }
+                className="input"
+              >
+                {ROOM_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {ROOM_CATEGORY_LABELS[cat]}
+                  </option>
+                ))}
+              </select>
             </label>
             {addError && (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -123,8 +151,22 @@ function RoomsPageContent() {
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <h2 className="text-sm font-semibold text-slate-700">All Rooms</h2>
+            <select
+              value={categoryFilter}
+              onChange={(e) =>
+                setCategoryFilter(e.target.value as RoomCategory | "")
+              }
+              className="input w-auto"
+            >
+              <option value="">All categories</option>
+              {ROOM_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {ROOM_CATEGORY_LABELS[cat]}
+                </option>
+              ))}
+            </select>
           </div>
 
           {isPending && (
@@ -138,9 +180,9 @@ function RoomsPageContent() {
             </p>
           )}
 
-          {rooms && (
+          {visibleRooms && (
             <ul className="divide-y divide-slate-100">
-              {rooms.map((room) => (
+              {visibleRooms.map((room) => (
                 <RoomRow
                   key={room.id}
                   room={room}
@@ -180,9 +222,12 @@ function RoomRow({
   const { showToast } = useToast();
   const updateRoom = useUpdateRoom();
   const [draftNumber, setDraftNumber] = useState(room.number);
+  const [draftCategory, setDraftCategory] = useState<RoomCategory>(
+    room.category,
+  );
   const [renameError, setRenameError] = useState<string | null>(null);
 
-  async function handleSaveRename(e: React.FormEvent) {
+  async function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
     setRenameError(null);
 
@@ -193,24 +238,39 @@ function RoomRow({
     }
 
     try {
-      await updateRoom.mutateAsync({ roomId: room.id, number: trimmed });
-      showToast(`Room renamed to ${trimmed}.`);
+      await updateRoom.mutateAsync({
+        roomId: room.id,
+        number: trimmed,
+        category: draftCategory,
+      });
+      showToast(`Room ${trimmed} updated.`);
       onStopEdit();
     } catch (err) {
-      setRenameError(getApiErrorMessage(err, "Could not rename room."));
+      setRenameError(getApiErrorMessage(err, "Could not update room."));
     }
   }
 
   if (isEditing) {
     return (
       <li className="px-5 py-3">
-        <form onSubmit={handleSaveRename} className="flex items-center gap-2">
+        <form onSubmit={handleSaveEdit} className="flex items-center gap-2">
           <input
             value={draftNumber}
             onChange={(e) => setDraftNumber(e.target.value)}
             autoFocus
             className="input flex-1"
           />
+          <select
+            value={draftCategory}
+            onChange={(e) => setDraftCategory(e.target.value as RoomCategory)}
+            className="input w-32"
+          >
+            {ROOM_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {ROOM_CATEGORY_LABELS[cat]}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
             disabled={updateRoom.isPending}
@@ -222,11 +282,12 @@ function RoomRow({
             type="button"
             onClick={() => {
               setDraftNumber(room.number);
+              setDraftCategory(room.category);
               setRenameError(null);
               onStopEdit();
             }}
             className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
-            aria-label="Cancel rename"
+            aria-label="Cancel edit"
           >
             <X className="h-4 w-4" />
           </button>
@@ -258,9 +319,19 @@ function RoomRow({
           )}
         </span>
         <div>
-          <p className="text-sm font-medium text-slate-900">
-            Room {room.number}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-slate-900">
+              Room {room.number}
+            </p>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-medium",
+                ROOM_CATEGORY_BADGE[room.category],
+              )}
+            >
+              {ROOM_CATEGORY_LABELS[room.category]}
+            </span>
+          </div>
           <p className="text-xs text-slate-400">
             {room.is_active ? "Active" : "Inactive"}
           </p>
@@ -271,7 +342,7 @@ function RoomRow({
         <button
           onClick={onStartEdit}
           className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          aria-label={`Rename Room ${room.number}`}
+          aria-label={`Edit Room ${room.number}`}
         >
           <Pencil className="h-4 w-4" />
         </button>

@@ -19,7 +19,14 @@ class User(AbstractUser):
 
 
 class Room(models.Model):
+    class Category(models.TextChoices):
+        NORMAL = "NORMAL", "Normal"
+        DELUXE = "DELUXE", "Deluxe"
+
     number = models.CharField(max_length=10, unique=True)
+    category = models.CharField(
+        max_length=20, choices=Category.choices, default=Category.NORMAL
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -93,6 +100,20 @@ class Booking(models.Model):
     @property
     def balance_due(self):
         return self.total_amount - self.amount_paid
+
+
+class Companion(models.Model):
+    """A co-traveler on a booking, distinct from the primary Guest record."""
+
+    booking = models.ForeignKey(
+        Booking, on_delete=models.CASCADE, related_name="companions"
+    )
+    name = models.CharField(max_length=255)
+    aadhar_number = models.CharField(max_length=20, null=True, blank=True)
+    phone = models.CharField(max_length=20, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.name} (companion on {self.booking_id})"
 
 
 class BookingRoom(models.Model):

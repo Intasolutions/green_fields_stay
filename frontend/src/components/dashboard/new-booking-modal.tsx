@@ -1,16 +1,34 @@
 "use client";
 
+import { Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCreateBooking } from "@/lib/hooks/use-booking-mutations";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { isValidAadhaar } from "@/lib/aadhaar";
 import { BOOKING_SOURCES, OTA_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
+import { ROOM_CATEGORY_LABELS } from "@/lib/room-categories";
 import { addDays, toDateOnly } from "@/lib/date-utils";
-import type { BookingSource, Guest, PaymentMethod, Room } from "@/lib/types";
+import type {
+  BookingSource,
+  CreateCompanionPayload,
+  Guest,
+  PaymentMethod,
+  Room,
+} from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { GuestLookupField } from "@/components/dashboard/guest-lookup-field";
+
+interface CompanionDraft {
+  key: number;
+  name: string;
+  aadhaar: string;
+  phone: string;
+}
+
+let nextCompanionKey = 1;
 
 interface NewBookingModalProps {
   rooms: Room[];
@@ -52,7 +70,29 @@ export function NewBookingModal({
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("NONE");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const [companions, setCompanions] = useState<CompanionDraft[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
+
+  function addCompanion() {
+    setCompanions((prev) => [
+      ...prev,
+      { key: nextCompanionKey++, name: "", aadhaar: "", phone: "" },
+    ]);
+  }
+
+  function updateCompanion(
+    key: number,
+    field: keyof Omit<CompanionDraft, "key">,
+    value: string,
+  ) {
+    setCompanions((prev) =>
+      prev.map((c) => (c.key === key ? { ...c, [field]: value } : c)),
+    );
+  }
+
+  function removeCompanion(key: number) {
+    setCompanions((prev) => prev.filter((c) => c.key !== key));
+  }
 
   const isOta = OTA_SOURCES.includes(source);
 
@@ -84,9 +124,31 @@ export function NewBookingModal({
       setFormError("Select at least one room.");
       return;
     }
-    if (!selectedGuest && (!guestName.trim() || !guestPhone.trim())) {
-      setFormError("Guest name and phone are required.");
-      return;
+    if (!selectedGuest) {
+      if (!guestName.trim() || !guestPhone.trim()) {
+        setFormError("Guest name and phone are required.");
+        return;
+      }
+      if (!guestAadhar.trim()) {
+        setFormError("Aadhaar number is required.");
+        return;
+      }
+      if (!isValidAadhaar(guestAadhar)) {
+        setFormError("Aadhaar number must be exactly 12 digits.");
+        return;
+      }
+    }
+    for (const companion of companions) {
+      if (!companion.name.trim()) {
+        setFormError("Enter a name for each companion, or remove the row.");
+        return;
+      }
+      if (companion.aadhaar.trim() && !isValidAadhaar(companion.aadhaar)) {
+        setFormError(
+          `Companion "${companion.name}"'s Aadhaar number must be exactly 12 digits.`,
+        );
+        return;
+      }
     }
     if (!checkOut || !checkIn || checkOut <= checkIn) {
       setFormError("Check-out date must be after check-in date.");
@@ -101,6 +163,12 @@ export function NewBookingModal({
       return;
     }
 
+    const companionsPayload: CreateCompanionPayload[] = companions.map((c) => ({
+      name: c.name.trim(),
+      aadhar_number: c.aadhaar.trim() || null,
+      phone: c.phone.trim() || null,
+    }));
+
     try {
       await createBooking.mutateAsync({
         guest: selectedGuest
@@ -108,12 +176,13 @@ export function NewBookingModal({
           : {
               name: guestName.trim(),
               phone: guestPhone.trim(),
-              aadhar_number: guestAadhar.trim() || null,
+              aadhar_number: guestAadhar.trim(),
             },
         room_ids: selectedRoomIds,
         source,
         ota_reference_id: isOta ? otaReferenceId.trim() || null : null,
         profile_tag: profileTag.trim() || null,
+        companions: companionsPayload.length > 0 ? companionsPayload : undefined,
         check_in: checkIn,
         check_out: checkOut,
         total_amount: totalAmount,
@@ -170,11 +239,17 @@ export function NewBookingModal({
                   required
                 />
               </Field>
-              <Field label="Aadhaar (optional)">
+              <Field label="Aadhaar" required>
                 <input
                   value={guestAadhar}
-                  onChange={(e) => setGuestAadhar(e.target.value)}
+                  onChange={(e) =>
+                    setGuestAadhar(e.target.value.replace(/\D/g, "").slice(0, 12))
+                  }
+                  inputMode="numeric"
+                  maxLength={12}
+                  placeholder="12-digit Aadhaar number"
                   className="input"
+                  required
                 />
               </Field>
               <Field label="Profile Tag">
@@ -201,6 +276,69 @@ export function NewBookingModal({
         </section>
 
         <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">
+              Companions <span className="text-slate-400">(optional)</span>
+            </h3>
+            <button
+              type="button"
+              onClick={addCompanion}
+              className="flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add companion
+            </button>
+          </div>
+
+          {companions.length > 0 && (
+            <div className="space-y-2">
+              {companions.map((companion) => (
+                <div key={companion.key} className="flex items-start gap-2">
+                  <input
+                    value={companion.name}
+                    onChange={(e) =>
+                      updateCompanion(companion.key, "name", e.target.value)
+                    }
+                    placeholder="Name"
+                    className="input flex-1"
+                  />
+                  <input
+                    value={companion.aadhaar}
+                    onChange={(e) =>
+                      updateCompanion(
+                        companion.key,
+                        "aadhaar",
+                        e.target.value.replace(/\D/g, "").slice(0, 12),
+                      )
+                    }
+                    inputMode="numeric"
+                    maxLength={12}
+                    placeholder="Aadhaar (optional)"
+                    className="input flex-1"
+                  />
+                  <input
+                    value={companion.phone}
+                    onChange={(e) =>
+                      updateCompanion(companion.key, "phone", e.target.value)
+                    }
+                    placeholder="Phone (optional)"
+                    className="input flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeCompanion(companion.key)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Remove companion"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section>
           <h3 className="mb-2 text-sm font-semibold text-slate-700">
             Rooms &amp; Dates
           </h3>
@@ -216,18 +354,32 @@ export function NewBookingModal({
                     type="button"
                     key={room.id}
                     onClick={() => toggleRoom(room.id)}
+                    title={ROOM_CATEGORY_LABELS[room.category]}
                     className={cn(
-                      "flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium transition",
+                      "relative flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium transition",
                       isSelected
                         ? "border-slate-900 bg-slate-900 text-white"
                         : "border-slate-200 text-slate-600 hover:border-slate-400",
                     )}
                   >
                     {room.number}
+                    {room.category === "DELUXE" && (
+                      <span
+                        className={cn(
+                          "absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-white",
+                          isSelected ? "bg-amber-300" : "bg-amber-500",
+                        )}
+                        aria-hidden
+                      />
+                    )}
                   </button>
                 );
               })}
             </div>
+            <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-400">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              Deluxe room
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Check-in" required>

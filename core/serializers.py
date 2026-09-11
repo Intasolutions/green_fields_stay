@@ -1,7 +1,11 @@
+import re
+
 from django.db import models, transaction
 from rest_framework import serializers
 
-from .models import Booking, BookingRoom, Expense, Guest, Payment, Room, User
+from .models import Booking, BookingRoom, Companion, Expense, Guest, Payment, Room, User
+
+AADHAAR_PATTERN = re.compile(r"^\d{12}$")
 
 ACTIVE_BOOKING_STATUSES = [Booking.Status.CONFIRMED, Booking.Status.CHECKED_IN]
 
@@ -15,7 +19,7 @@ class UserSerializer(serializers.ModelSerializer):
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ["id", "number", "is_active"]
+        fields = ["id", "number", "category", "is_active"]
 
     def validate(self, attrs):
         is_active = attrs.get("is_active")
@@ -118,6 +122,21 @@ class GuestIntakeSerializer(serializers.Serializer):
                 "Provide either an existing guest 'id', or 'name' and 'phone' "
                 "to create a new guest."
             )
+
+        # Aadhaar is only enforced when creating a new guest record; a
+        # returning guest looked up by id may predate this requirement.
+        if not attrs.get("id"):
+            aadhar_number = (attrs.get("aadhar_number") or "").strip()
+            if not aadhar_number:
+                raise serializers.ValidationError(
+                    {"aadhar_number": "Aadhaar number is required."}
+                )
+            if not AADHAAR_PATTERN.match(aadhar_number):
+                raise serializers.ValidationError(
+                    {"aadhar_number": "Aadhaar number must be exactly 12 digits."}
+                )
+            attrs["aadhar_number"] = aadhar_number
+
         return attrs
 
 
@@ -129,12 +148,30 @@ class BookingRoomSerializer(serializers.ModelSerializer):
         fields = ["id", "room", "room_number"]
 
 
+class CompanionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Companion
+        fields = ["id", "name", "aadhar_number", "phone"]
+        read_only_fields = ["id"]
+
+    def validate_aadhar_number(self, value):
+        if not value:
+            return value
+        value = value.strip()
+        if not AADHAAR_PATTERN.match(value):
+            raise serializers.ValidationError(
+                "Aadhaar number must be exactly 12 digits."
+            )
+        return value
+
+
 class BookingSerializer(serializers.ModelSerializer):
-    """Read/list serializer with nested rooms, guest, and payments."""
+    """Read/list serializer with nested rooms, guest, payments, and companions."""
 
     guest = GuestSerializer(read_only=True)
     allocated_rooms = BookingRoomSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
+    companions = CompanionSerializer(many=True, read_only=True)
     balance_due = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True
     )
@@ -160,6 +197,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "created_at",
             "allocated_rooms",
             "payments",
+            "companions",
             "balance_due",
             "amount_paid",
         ]
@@ -199,6 +237,7 @@ class BookingCreateSerializer(serializers.Serializer):
         max_digits=10, decimal_places=2, required=False
     )
     initial_payment = InitialPaymentSerializer(required=False)
+    companions = CompanionSerializer(many=True, required=False)
 
     def validate(self, attrs):
         check_in = attrs["check_in"]
@@ -241,6 +280,7 @@ class BookingCreateSerializer(serializers.Serializer):
         guest_data = validated_data.pop("guest")
         room_ids = validated_data.pop("room_ids")
         initial_payment = validated_data.pop("initial_payment", None)
+        companions_data = validated_data.pop("companions", [])
 
         if guest_data.get("id"):
             try:
@@ -284,6 +324,19 @@ class BookingCreateSerializer(serializers.Serializer):
         BookingRoom.objects.bulk_create(
             [BookingRoom(booking=booking, room=room) for room in locked_rooms]
         )
+
+        if companions_data:
+            Companion.objects.bulk_create(
+                [
+                    Companion(
+                        booking=booking,
+                        name=companion["name"],
+                        aadhar_number=companion.get("aadhar_number"),
+                        phone=companion.get("phone"),
+                    )
+                    for companion in companions_data
+                ]
+            )
 
         if initial_payment:
             request = self.context.get("request")

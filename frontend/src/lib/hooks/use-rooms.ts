@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api-client";
-import type { Room } from "@/lib/types";
+import type { Room, RoomCategory } from "@/lib/types";
 
 export function useRooms() {
   return useQuery({
@@ -27,8 +27,17 @@ export function useCreateRoom() {
   const invalidate = useInvalidateRooms();
 
   return useMutation({
-    mutationFn: async (number: string) => {
-      const response = await apiClient.post<Room>("/rooms/", { number });
+    mutationFn: async ({
+      number,
+      category,
+    }: {
+      number: string;
+      category: RoomCategory;
+    }) => {
+      const response = await apiClient.post<Room>("/rooms/", {
+        number,
+        category,
+      });
       return response.data;
     },
     onSuccess: () => invalidate(),
@@ -42,14 +51,17 @@ export function useUpdateRoom() {
     mutationFn: async ({
       roomId,
       number,
+      category,
       isActive,
     }: {
       roomId: number;
       number?: string;
+      category?: RoomCategory;
       isActive?: boolean;
     }) => {
       const response = await apiClient.patch<Room>(`/rooms/${roomId}/`, {
         ...(number !== undefined ? { number } : {}),
+        ...(category !== undefined ? { category } : {}),
         ...(isActive !== undefined ? { is_active: isActive } : {}),
       });
       return response.data;

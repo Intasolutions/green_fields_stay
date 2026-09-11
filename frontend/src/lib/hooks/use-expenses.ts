@@ -38,6 +38,40 @@ export function useExpensesList(params: ExpensesListParams) {
   });
 }
 
+/**
+ * Fetches every expense matching the given filters across all pages.
+ * Used for CSV export, where the download must cover the full filtered
+ * range rather than just the page currently on screen.
+ */
+export async function fetchAllExpenses(
+  params: Pick<ExpensesListParams, "fromDate" | "toDate" | "category">,
+): Promise<Expense[]> {
+  const { fromDate, toDate, category } = params;
+  const results: Expense[] = [];
+  let page = 1;
+  const pageSize = 200;
+
+  while (true) {
+    const response = await apiClient.get<PaginatedResponse<Expense>>(
+      "/expenses/",
+      {
+        params: {
+          from_date: fromDate || undefined,
+          to_date: toDate || undefined,
+          category: category || undefined,
+          page,
+          page_size: pageSize,
+        },
+      },
+    );
+    results.push(...response.data.results);
+    if (!response.data.next) break;
+    page += 1;
+  }
+
+  return results;
+}
+
 export function useCreateExpense() {
   const queryClient = useQueryClient();
 

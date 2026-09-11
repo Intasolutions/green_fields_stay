@@ -1,9 +1,10 @@
 "use client";
 
-import { Printer } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { useState } from "react";
 
 import { RequireRole } from "@/components/require-role";
+import { useToast } from "@/components/ui/toast";
 import {
   addDays,
   endOfMonth,
@@ -12,6 +13,7 @@ import {
   startOfDay,
   toDateOnly,
 } from "@/lib/date-utils";
+import { downloadCsv } from "@/lib/csv-export";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_DOT,
@@ -19,7 +21,11 @@ import {
 } from "@/lib/expense-categories";
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/payment-methods";
 import { BOOKING_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
-import { useFinancialSummaryReport, useOccupancyReport } from "@/lib/hooks/use-reports";
+import {
+  useFinancialSummaryReport,
+  useOccupancyReport,
+} from "@/lib/hooks/use-reports";
+import type { FinancialSummaryReport, OccupancyReport } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 const DEFAULT_RANGE = getCurrentMonthRange();
@@ -57,6 +63,58 @@ function formatCurrency(value: number): string {
   return `Rs. ${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function buildReportCsvRows(
+  financial: FinancialSummaryReport,
+  occupancy: OccupancyReport,
+): (string | number)[][] {
+  const rows: (string | number)[][] = [
+    ["Report Period", `${financial.from} to ${financial.to}`],
+    [],
+    ["Financial Summary", ""],
+    ["Total Revenue", financial.total_booking_revenue],
+    ["OTA Commissions", financial.total_ota_commissions],
+    ["Net Payout", financial.total_net_payout],
+    ["Total Expenses", financial.total_expenses],
+    ["Net Profit", financial.net_profit],
+    ["Bookings", financial.booking_count],
+    ["Average Booking Value", financial.average_booking_value],
+    ["Cancelled Bookings", financial.cancelled_count],
+    [],
+    ["Bookings by Source", "Count", "Revenue"],
+    ...BOOKING_SOURCES.map((source) => [
+      SOURCE_STYLES[source].label,
+      financial.bookings_by_source[source] ?? 0,
+      financial.revenue_by_source[source] ?? 0,
+    ]),
+    [],
+    ["Payments by Method", "Amount"],
+    ...PAYMENT_METHODS.map((method) => [
+      PAYMENT_METHOD_LABELS[method],
+      financial.payments_by_method[method] ?? 0,
+    ]),
+    [],
+    ["Expenses by Category", "Amount"],
+    ...EXPENSE_CATEGORIES.map((category) => [
+      EXPENSE_CATEGORY_LABELS[category],
+      financial.expenses_by_category[category] ?? 0,
+    ]),
+    [],
+    ["Occupancy", ""],
+    ["Lodge-wide Occupancy %", occupancy.occupancy_percentage],
+    ["Room-Nights Sold", occupancy.total_room_nights_sold],
+    ["Days in Range", occupancy.number_of_days],
+    [],
+    ["Room", "Nights Booked", "Occupancy %"],
+    ...occupancy.rooms.map((room) => [
+      `Room ${room.room_number}`,
+      room.nights_booked,
+      room.occupancy_percentage,
+    ]),
+  ];
+
+  return rows;
+}
+
 export default function ReportsPage() {
   return (
     <RequireRole allowedRoles={["ADMIN"]}>
@@ -68,6 +126,7 @@ export default function ReportsPage() {
 function ReportsPageContent() {
   const [from, setFrom] = useState(DEFAULT_RANGE.from);
   const [to, setTo] = useState(DEFAULT_RANGE.to);
+  const { showToast } = useToast();
 
   const financial = useFinancialSummaryReport(from, to);
   const occupancy = useOccupancyReport(from, to);
@@ -76,6 +135,13 @@ function ReportsPageContent() {
     const range = getRange();
     setFrom(range.from);
     setTo(range.to);
+  }
+
+  function handleDownloadCsv() {
+    if (!financial.data || !occupancy.data) return;
+    const rows = buildReportCsvRows(financial.data, occupancy.data);
+    downloadCsv(`report_${from}_to_${to}.csv`, rows);
+    showToast("Report exported.");
   }
 
   return (
@@ -116,6 +182,14 @@ function ReportsPageContent() {
             onChange={(e) => setTo(e.target.value)}
             className="input w-auto"
           />
+          <button
+            onClick={handleDownloadCsv}
+            disabled={!financial.data || !occupancy.data}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            Download CSV
+          </button>
           <button
             onClick={() => window.print()}
             className="flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"

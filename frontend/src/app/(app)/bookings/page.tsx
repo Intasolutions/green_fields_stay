@@ -23,6 +23,8 @@ const PAGE_SIZE = 20;
 export default function BookingsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<BookingStatus | "">("");
+  const [checkInFrom, setCheckInFrom] = useState("");
+  const [checkInTo, setCheckInTo] = useState("");
   const [page, setPage] = useState(1);
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(
     null,
@@ -33,6 +35,8 @@ export default function BookingsPage() {
   const { data, isPending, isError, isPlaceholderData } = useBookingsList({
     search: debouncedSearch,
     status: statusFilter,
+    checkInFrom,
+    checkInTo,
     page,
     pageSize: PAGE_SIZE,
   });
@@ -48,6 +52,27 @@ export default function BookingsPage() {
     setStatusFilter(value);
     setPage(1);
   }
+
+  function handleCheckInFromChange(value: string) {
+    setCheckInFrom(value);
+    setPage(1);
+  }
+
+  function handleCheckInToChange(value: string) {
+    setCheckInTo(value);
+    setPage(1);
+  }
+
+  function handleClearFilters() {
+    setSearchInput("");
+    setStatusFilter("");
+    setCheckInFrom("");
+    setCheckInTo("");
+    setPage(1);
+  }
+
+  const hasActiveFilters =
+    searchInput || statusFilter || checkInFrom || checkInTo;
 
   return (
     <div className="space-y-4">
@@ -80,6 +105,32 @@ export default function BookingsPage() {
             </option>
           ))}
         </select>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-400">Check-in</span>
+          <input
+            type="date"
+            value={checkInFrom}
+            onChange={(e) => handleCheckInFromChange(e.target.value)}
+            className="input w-auto"
+          />
+          <span className="text-sm text-slate-400">to</span>
+          <input
+            type="date"
+            value={checkInTo}
+            onChange={(e) => handleCheckInToChange(e.target.value)}
+            className="input w-auto"
+          />
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            onClick={handleClearFilters}
+            className="text-sm font-medium text-slate-500 hover:text-slate-700"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">

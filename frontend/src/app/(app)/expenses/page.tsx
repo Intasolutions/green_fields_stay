@@ -1,21 +1,28 @@
 "use client";
 
+import { Download } from "lucide-react";
 import { useState } from "react";
 
 import { getApiErrorMessage } from "@/lib/api-error";
-import { toDateOnly } from "@/lib/date-utils";
+import { getCurrentMonthRange, toDateOnly } from "@/lib/date-utils";
+import { downloadCsv } from "@/lib/csv-export";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_DOT,
   EXPENSE_CATEGORY_LABELS,
 } from "@/lib/expense-categories";
-import { useCreateExpense, useExpensesList } from "@/lib/hooks/use-expenses";
+import {
+  fetchAllExpenses,
+  useCreateExpense,
+  useExpensesList,
+} from "@/lib/hooks/use-expenses";
 import type { ExpenseCategory } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/toast";
 import { RequireRole } from "@/components/require-role";
 
 const PAGE_SIZE = 15;
+const DEFAULT_RANGE = getCurrentMonthRange();
 
 export default function ExpensesPage() {
   return (
@@ -230,40 +237,117 @@ function NewExpenseForm() {
 }
 
 function RecentExpensesFeed() {
+  const { showToast } = useToast();
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | "">(
     "",
   );
+  const [fromDate, setFromDate] = useState(DEFAULT_RANGE.from);
+  const [toDate, setToDate] = useState(DEFAULT_RANGE.to);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data, isPending, isError, isPlaceholderData } = useExpensesList({
     category: categoryFilter,
+    fromDate,
+    toDate,
     page,
     pageSize: PAGE_SIZE,
   });
 
   const totalPages = data ? Math.max(1, Math.ceil(data.count / PAGE_SIZE)) : 1;
 
+  async function handleExportCsv() {
+    setIsExporting(true);
+    try {
+      const rows: (string | number)[][] = [
+        [
+          "Date",
+          "Category",
+          "Job Details",
+          "Worker Count",
+          "Paid To",
+          "Amount",
+          "Materials Purchased",
+        ],
+      ];
+
+      // Pull every matching page, not just the one currently on screen.
+      const allExpenses = await fetchAllExpenses({
+        category: categoryFilter,
+        fromDate,
+        toDate,
+      });
+      for (const expense of allExpenses) {
+        rows.push([
+          expense.date,
+          EXPENSE_CATEGORY_LABELS[expense.category],
+          expense.job_details,
+          expense.worker_count ?? "",
+          expense.paid_to,
+          expense.amount,
+          expense.materials_purchased ?? "",
+        ]);
+      }
+
+      downloadCsv(`expenses_${fromDate}_to_${toDate}.csv`, rows);
+      showToast(`Exported ${allExpenses.length} expense(s).`);
+    } catch {
+      showToast("Could not export expenses.", "error");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-4">
         <h2 className="text-sm font-semibold text-slate-700">
           Recent Expenses
         </h2>
-        <select
-          value={categoryFilter}
-          onChange={(e) => {
-            setCategoryFilter(e.target.value as ExpenseCategory | "");
-            setPage(1);
-          }}
-          className="input w-auto"
-        >
-          <option value="">All categories</option>
-          {EXPENSE_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {EXPENSE_CATEGORY_LABELS[cat]}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setPage(1);
+            }}
+            className="input w-auto"
+          />
+          <span className="text-sm text-slate-400">to</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setPage(1);
+            }}
+            className="input w-auto"
+          />
+          <select
+            value={categoryFilter}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value as ExpenseCategory | "");
+              setPage(1);
+            }}
+            className="input w-auto"
+          >
+            <option value="">All categories</option>
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {EXPENSE_CATEGORY_LABELS[cat]}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleExportCsv}
+            disabled={isExporting || !data || data.count === 0}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            {isExporting ? "Exporting..." : "Download CSV"}
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -295,7 +379,7 @@ function RecentExpensesFeed() {
             {!isPending && !isError && data?.results.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  No expenses recorded yet.
+                  No expenses recorded for this range.
                 </td>
               </tr>
             )}

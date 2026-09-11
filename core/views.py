@@ -167,6 +167,14 @@ class BookingViewSet(viewsets.ModelViewSet):
         if check_out:
             qs = qs.filter(check_out=check_out)
 
+        check_in_from = parse_date(params.get("check_in_from", ""))
+        if check_in_from:
+            qs = qs.filter(check_in__gte=check_in_from)
+
+        check_in_to = parse_date(params.get("check_in_to", ""))
+        if check_in_to:
+            qs = qs.filter(check_in__lte=check_in_to)
+
         search = params.get("search", "").strip()
         if search:
             qs = qs.filter(

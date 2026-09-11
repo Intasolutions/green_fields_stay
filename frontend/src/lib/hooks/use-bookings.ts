@@ -15,15 +15,28 @@ export interface PaginatedResponse<T> {
 export interface BookingsListParams {
   search?: string;
   status?: BookingStatus | "";
+  checkInFrom?: string;
+  checkInTo?: string;
   page?: number;
   pageSize?: number;
 }
 
 export function useBookingsList(params: BookingsListParams) {
-  const { search, status, page = 1, pageSize = 20 } = params;
+  const {
+    search,
+    status,
+    checkInFrom,
+    checkInTo,
+    page = 1,
+    pageSize = 20,
+  } = params;
 
   return useQuery({
-    queryKey: ["bookings", "list", { search, status, page, pageSize }],
+    queryKey: [
+      "bookings",
+      "list",
+      { search, status, checkInFrom, checkInTo, page, pageSize },
+    ],
     queryFn: async () => {
       const response = await apiClient.get<PaginatedResponse<Booking>>(
         "/bookings/",
@@ -31,6 +44,8 @@ export function useBookingsList(params: BookingsListParams) {
           params: {
             search: search || undefined,
             status: status || undefined,
+            check_in_from: checkInFrom || undefined,
+            check_in_to: checkInTo || undefined,
             page,
             page_size: pageSize,
           },

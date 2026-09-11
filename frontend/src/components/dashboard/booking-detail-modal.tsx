@@ -136,6 +136,11 @@ export function BookingDetailModal({
                   {booking.guest.name}
                 </p>
                 <p className="text-sm text-slate-500">{booking.guest.phone}</p>
+                {booking.guest.aadhar_number && (
+                  <p className="text-xs text-slate-400">
+                    Aadhaar: {booking.guest.aadhar_number}
+                  </p>
+                )}
                 {booking.profile_tag && (
                   <p className="mt-0.5 text-xs text-slate-400">
                     {booking.profile_tag}
@@ -144,6 +149,38 @@ export function BookingDetailModal({
               </div>
               <StatusBadge status={booking.status} />
             </div>
+
+            {booking.companions.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-slate-500">
+                  Companions
+                </p>
+                <ul className="space-y-1 text-sm">
+                  {booking.companions.map((companion) => (
+                    <li
+                      key={companion.id}
+                      className="rounded-md bg-slate-50 px-2.5 py-1.5"
+                    >
+                      <span className="font-medium text-slate-700">
+                        {companion.name}
+                      </span>
+                      {companion.aadhar_number && (
+                        <span className="text-slate-400">
+                          {" "}
+                          &middot; Aadhaar: {companion.aadhar_number}
+                        </span>
+                      )}
+                      {companion.phone && (
+                        <span className="text-slate-400">
+                          {" "}
+                          &middot; {companion.phone}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-sm">
               <InfoRow label="Check-in" value={booking.check_in} />

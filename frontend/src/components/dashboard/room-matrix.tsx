@@ -15,6 +15,7 @@ import {
 import { SOURCE_STYLES } from "@/lib/source-colors";
 import type { RoomAvailabilityBooking } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "@/components/ui/tooltip";
 
 const VISIBLE_DAYS = 14;
 const ROOM_COL_WIDTH = 96;
@@ -321,15 +322,19 @@ function RoomRow({
               return <div key={toDateOnly(day)} style={{ width: DAY_COL_WIDTH }} />;
             }
             return (
-              <button
+              <Tooltip
                 key={toDateOnly(day)}
-                onClick={() => onEmptySlotClick(toDateOnly(day))}
-                className="group flex items-center justify-center transition hover:bg-slate-50"
+                label={`Book Room ${roomNumber} · ${formatShortDate(day)}`}
+                className="items-stretch"
                 style={{ width: DAY_COL_WIDTH }}
-                title={`Book Room ${roomNumber} starting ${toDateOnly(day)}`}
               >
-                <Plus className="h-3.5 w-3.5 text-slate-300 opacity-0 transition group-hover:opacity-100" />
-              </button>
+                <button
+                  onClick={() => onEmptySlotClick(toDateOnly(day))}
+                  className="group flex w-full items-center justify-center transition hover:bg-slate-100"
+                >
+                  <Plus className="h-4 w-4 text-slate-400 opacity-0 transition group-hover:opacity-100" />
+                </button>
+              </Tooltip>
             );
           })}
         </div>

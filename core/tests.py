@@ -38,7 +38,11 @@ class BaseAPITestCase(APITestCase):
 
     def make_booking_payload(self, room_ids, check_in, check_out, **overrides):
         payload = {
-            "guest": {"name": "John Doe", "phone": "9999999999"},
+            "guest": {
+                "name": "John Doe",
+                "phone": "9999999999",
+                "aadhar_number": "123456789012",
+            },
             "room_ids": room_ids,
             "source": Booking.Source.DIRECT,
             "check_in": check_in.isoformat(),
@@ -109,6 +113,106 @@ class BookingCreateTests(BaseAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(Booking.objects.first().guest_id, guest.id)
+
+    def test_new_guest_requires_aadhaar(self):
+        url = reverse("booking-list")
+        check_in = date.today() + timedelta(days=1)
+        check_out = date.today() + timedelta(days=3)
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            check_in,
+            check_out,
+            guest={"name": "No Aadhaar", "phone": "9000000001"},
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_new_guest_aadhaar_must_be_12_digits(self):
+        url = reverse("booking-list")
+        check_in = date.today() + timedelta(days=1)
+        check_out = date.today() + timedelta(days=3)
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            check_in,
+            check_out,
+            guest={
+                "name": "Bad Aadhaar",
+                "phone": "9000000002",
+                "aadhar_number": "12345",
+            },
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_existing_guest_without_aadhaar_still_allowed(self):
+        from .models import Guest
+
+        guest = Guest.objects.create(name="Legacy Guest", phone="9000000003")
+        url = reverse("booking-list")
+        check_in = date.today() + timedelta(days=1)
+        check_out = date.today() + timedelta(days=3)
+        payload = self.make_booking_payload(
+            [self.room1.id], check_in, check_out, guest={"id": str(guest.id)}
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_create_booking_with_companions(self):
+        url = reverse("booking-list")
+        check_in = date.today() + timedelta(days=1)
+        check_out = date.today() + timedelta(days=3)
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            check_in,
+            check_out,
+            companions=[
+                {"name": "Priya Sharma", "aadhar_number": "555566667777"},
+                {"name": "Child Sharma", "phone": "9999988888"},
+            ],
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        booking = Booking.objects.get(id=response.data["id"])
+        self.assertEqual(booking.companions.count(), 2)
+        self.assertEqual(len(response.data["companions"]), 2)
+
+    def test_companion_aadhaar_must_be_12_digits_if_provided(self):
+        url = reverse("booking-list")
+        check_in = date.today() + timedelta(days=1)
+        check_out = date.today() + timedelta(days=3)
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            check_in,
+            check_out,
+            companions=[{"name": "Bad Companion", "aadhar_number": "123"}],
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_companion_without_aadhaar_or_phone_allowed(self):
+        url = reverse("booking-list")
+        check_in = date.today() + timedelta(days=1)
+        check_out = date.today() + timedelta(days=3)
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            check_in,
+            check_out,
+            companions=[{"name": "Just A Name"}],
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
 
     def test_create_booking_with_initial_payment(self):
         url = reverse("booking-list")
@@ -577,6 +681,37 @@ class BookingListFilterTests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
 
+    def test_filter_by_check_in_date_range(self):
+        today = date.today()
+        url = reverse("booking-list")
+        self.client.post(
+            url,
+            self.make_booking_payload(
+                [self.room1.id], today, today + timedelta(days=2)
+            ),
+            format="json",
+        )
+        self.client.post(
+            url,
+            self.make_booking_payload(
+                [self.room2.id],
+                today + timedelta(days=20),
+                today + timedelta(days=22),
+            ),
+            format="json",
+        )
+
+        response = self.client.get(
+            url,
+            {
+                "check_in_from": today.isoformat(),
+                "check_in_to": (today + timedelta(days=5)).isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+
     def test_search_by_guest_name(self):
         today = date.today()
         url = reverse("booking-list")
@@ -586,7 +721,11 @@ class BookingListFilterTests(BaseAPITestCase):
                 [self.room1.id],
                 today,
                 today + timedelta(days=2),
-                guest={"name": "Ravi Kumar", "phone": "9111111111"},
+                guest={
+                    "name": "Ravi Kumar",
+                    "phone": "9111111111",
+                    "aadhar_number": "111122223333",
+                },
             ),
             format="json",
         )
@@ -596,7 +735,11 @@ class BookingListFilterTests(BaseAPITestCase):
                 [self.room2.id],
                 today,
                 today + timedelta(days=2),
-                guest={"name": "Sita Devi", "phone": "9222222222"},
+                guest={
+                    "name": "Sita Devi",
+                    "phone": "9222222222",
+                    "aadhar_number": "444455556666",
+                },
             ),
             format="json",
         )
@@ -616,7 +759,11 @@ class BookingListFilterTests(BaseAPITestCase):
                 [self.room1.id],
                 today,
                 today + timedelta(days=2),
-                guest={"name": "Ravi Kumar", "phone": "9111111111"},
+                guest={
+                    "name": "Ravi Kumar",
+                    "phone": "9111111111",
+                    "aadhar_number": "111122223333",
+                },
             ),
             format="json",
         )
@@ -1147,6 +1294,44 @@ class RoomManagementTests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(response.data["number"], "12")
         self.assertTrue(response.data["is_active"])
+        self.assertEqual(response.data["category"], Room.Category.NORMAL)
+
+    def test_admin_can_add_deluxe_room(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-list")
+        response = self.client.post(
+            url, {"number": "12", "category": "DELUXE"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["category"], "DELUXE")
+
+    def test_admin_can_change_room_category(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(url, {"category": "DELUXE"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["category"], "DELUXE")
+
+    def test_availability_includes_room_category(self):
+        self.client.force_authenticate(user=self.admin)
+        room_url = reverse("room-detail", args=[self.room1.id])
+        self.client.patch(room_url, {"category": "DELUXE"}, format="json")
+
+        availability_url = reverse("room-availability")
+        response = self.client.get(
+            availability_url,
+            {
+                "start_date": date.today().isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
+        )
+
+        room1_entry = next(
+            r for r in response.data if r["room"]["number"] == "1"
+        )
+        self.assertEqual(room1_entry["room"]["category"], "DELUXE")
 
     def test_admin_cannot_add_duplicate_room_number(self):
         self.client.force_authenticate(user=self.admin)

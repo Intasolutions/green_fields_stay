@@ -31,9 +31,12 @@ export type BookingStatus =
 export type PaymentType = "ADVANCE" | "SETTLEMENT" | "FULL" | "REFUND";
 export type PaymentMethod = "CASH" | "UPI" | "CARD" | "OTA_VCC";
 
+export type RoomCategory = "NORMAL" | "DELUXE";
+
 export interface Room {
   id: number;
   number: string;
+  category: RoomCategory;
   is_active: boolean;
 }
 
@@ -78,6 +81,13 @@ export interface BookingRoomAllocation {
   room_number: string;
 }
 
+export interface Companion {
+  id: number;
+  name: string;
+  aadhar_number: string | null;
+  phone: string | null;
+}
+
 export interface Booking {
   id: string;
   guest: Guest;
@@ -94,8 +104,15 @@ export interface Booking {
   created_at: string;
   allocated_rooms: BookingRoomAllocation[];
   payments: Payment[];
+  companions: Companion[];
   balance_due: string;
   amount_paid: string;
+}
+
+export interface CreateCompanionPayload {
+  name: string;
+  aadhar_number?: string | null;
+  phone?: string | null;
 }
 
 export interface CreateBookingPayload {
@@ -109,6 +126,7 @@ export interface CreateBookingPayload {
   source: BookingSource;
   ota_reference_id?: string | null;
   profile_tag?: string | null;
+  companions?: CreateCompanionPayload[];
   check_in: string;
   check_out: string;
   total_amount: string;
