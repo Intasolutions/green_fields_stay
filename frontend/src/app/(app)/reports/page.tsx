@@ -3,6 +3,7 @@
 import { Printer } from "lucide-react";
 import { useState } from "react";
 
+import { RequireRole } from "@/components/require-role";
 import {
   addDays,
   endOfMonth,
@@ -16,6 +17,8 @@ import {
   EXPENSE_CATEGORY_DOT,
   EXPENSE_CATEGORY_LABELS,
 } from "@/lib/expense-categories";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/payment-methods";
+import { BOOKING_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
 import { useFinancialSummaryReport, useOccupancyReport } from "@/lib/hooks/use-reports";
 import { cn } from "@/lib/cn";
 
@@ -55,6 +58,14 @@ function formatCurrency(value: number): string {
 }
 
 export default function ReportsPage() {
+  return (
+    <RequireRole allowedRoles={["ADMIN"]}>
+      <ReportsPageContent />
+    </RequireRole>
+  );
+}
+
+function ReportsPageContent() {
   const [from, setFrom] = useState(DEFAULT_RANGE.from);
   const [to, setTo] = useState(DEFAULT_RANGE.to);
 
@@ -178,6 +189,76 @@ function FinancialSummarySection({
               value={formatCurrency(data.net_profit)}
               emphasis={data.net_profit >= 0 ? "positive" : "negative"}
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 print:grid-cols-3 print:gap-2">
+            <StatTile label="Bookings" value={String(data.booking_count)} />
+            <StatTile
+              label="Avg. Booking Value"
+              value={formatCurrency(data.average_booking_value)}
+            />
+            <StatTile
+              label="Cancelled Bookings"
+              value={String(data.cancelled_count)}
+              emphasis={data.cancelled_count > 0 ? "negative" : undefined}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 print:grid-cols-2">
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm print:border-black print:shadow-none">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 print:text-black">
+                Bookings by Source
+              </h3>
+              <ul className="divide-y divide-slate-100 print:divide-black/20">
+                {BOOKING_SOURCES.map((source) => {
+                  const count = data.bookings_by_source[source] ?? 0;
+                  const revenue = data.revenue_by_source[source] ?? 0;
+                  return (
+                    <li
+                      key={source}
+                      className="flex items-center justify-between py-2 text-sm"
+                    >
+                      <span className="flex items-center gap-2 text-slate-600 print:text-black">
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full print:hidden",
+                            SOURCE_STYLES[source].dot,
+                          )}
+                        />
+                        {SOURCE_STYLES[source].label}
+                        <span className="text-xs text-slate-400 print:text-black">
+                          &times;{count}
+                        </span>
+                      </span>
+                      <span className="font-medium text-slate-900 print:text-black">
+                        {formatCurrency(revenue)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm print:border-black print:shadow-none">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 print:text-black">
+                Payments Collected by Method
+              </h3>
+              <ul className="divide-y divide-slate-100 print:divide-black/20">
+                {PAYMENT_METHODS.map((method) => (
+                  <li
+                    key={method}
+                    className="flex items-center justify-between py-2 text-sm"
+                  >
+                    <span className="text-slate-600 print:text-black">
+                      {PAYMENT_METHOD_LABELS[method]}
+                    </span>
+                    <span className="font-medium text-slate-900 print:text-black">
+                      {formatCurrency(data.payments_by_method[method] ?? 0)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm print:border-black print:shadow-none">

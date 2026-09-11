@@ -10,17 +10,21 @@ from .views import (
     MeView,
     OccupancyReportView,
     RoomAvailabilityView,
+    RoomViewSet,
 )
 
 router = DefaultRouter()
 router.register("bookings", BookingViewSet, basename="booking")
 router.register("expenses", ExpenseViewSet, basename="expense")
 router.register("guests", GuestViewSet, basename="guest")
+router.register("rooms", RoomViewSet, basename="room")
 
 urlpatterns = [
     path("auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", MeView.as_view(), name="me"),
+    # Must precede the router include: "availability" would otherwise be
+    # captured as a {pk} lookup by RoomViewSet's rooms/<pk>/ route.
     path(
         "rooms/availability/",
         RoomAvailabilityView.as_view(),

@@ -102,6 +102,20 @@ class RoomAvailabilityView(APIView):
         return Response(data)
 
 
+class RoomViewSet(viewsets.ModelViewSet):
+    """Admin-only room management (add, rename, activate/deactivate)."""
+
+    queryset = Room.objects.all()
+    serializer_class = RoomSerializer
+    pagination_class = None
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdmin()]
+
+
 class GuestViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only lookup used by the New Booking form to find returning guests."""
 
@@ -273,7 +287,38 @@ class FinancialSummaryReportView(APIView):
             total_booking_revenue=Sum("total_amount"),
             total_ota_commissions=Sum("ota_commission"),
             total_net_payout=Sum("net_payout"),
+            booking_count=models.Count("id"),
         )
+
+        booking_count = booking_totals["booking_count"] or 0
+        total_booking_revenue = booking_totals["total_booking_revenue"] or 0
+        average_booking_value = (
+            (total_booking_revenue / booking_count) if booking_count else 0
+        )
+
+        bookings_by_source = {choice: 0 for choice, _ in Booking.Source.choices}
+        revenue_by_source = {choice: 0 for choice, _ in Booking.Source.choices}
+        for row in bookings.values("source").annotate(
+            count=models.Count("id"), revenue=Sum("total_amount")
+        ):
+            bookings_by_source[row["source"]] = row["count"]
+            revenue_by_source[row["source"]] = row["revenue"] or 0
+
+        cancelled_count = Booking.objects.filter(
+            status=Booking.Status.CANCELLED,
+            check_in__gte=date_from,
+            check_in__lte=date_to,
+        ).count()
+
+        payments = Payment.objects.filter(
+            booking__check_in__gte=date_from,
+            booking__check_in__lte=date_to,
+            booking__status__in=NON_CANCELLED_STATUSES,
+        ).exclude(payment_type=Payment.PaymentType.REFUND)
+
+        payments_by_method = {choice: 0 for choice, _ in Payment.PaymentMethod.choices}
+        for row in payments.values("payment_method").annotate(total=Sum("amount")):
+            payments_by_method[row["payment_method"]] = row["total"] or 0
 
         expenses = Expense.objects.filter(date__gte=date_from, date__lte=date_to)
         expense_total = expenses.aggregate(total=Sum("amount"))["total"] or 0
@@ -289,12 +334,18 @@ class FinancialSummaryReportView(APIView):
             {
                 "from": date_from,
                 "to": date_to,
-                "total_booking_revenue": booking_totals["total_booking_revenue"] or 0,
+                "total_booking_revenue": total_booking_revenue,
                 "total_ota_commissions": booking_totals["total_ota_commissions"] or 0,
                 "total_net_payout": total_net_payout,
                 "total_expenses": expense_total,
                 "expenses_by_category": expenses_by_category,
                 "net_profit": net_profit,
+                "booking_count": booking_count,
+                "average_booking_value": average_booking_value,
+                "cancelled_count": cancelled_count,
+                "bookings_by_source": bookings_by_source,
+                "revenue_by_source": revenue_by_source,
+                "payments_by_method": payments_by_method,
             }
         )
 

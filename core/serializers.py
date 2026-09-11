@@ -17,6 +17,32 @@ class RoomSerializer(serializers.ModelSerializer):
         model = Room
         fields = ["id", "number", "is_active"]
 
+    def validate(self, attrs):
+        is_active = attrs.get("is_active")
+        if (
+            self.instance is not None
+            and is_active is False
+            and self.instance.is_active
+        ):
+            from django.utils import timezone
+
+            has_current_or_future_booking = BookingRoom.objects.filter(
+                room=self.instance,
+                booking__status__in=ACTIVE_BOOKING_STATUSES,
+                booking__check_out__gt=timezone.localdate(),
+            ).exists()
+            if has_current_or_future_booking:
+                raise serializers.ValidationError(
+                    {
+                        "is_active": (
+                            "This room has a current or upcoming booking and "
+                            "cannot be deactivated until it is checked out or "
+                            "cancelled."
+                        )
+                    }
+                )
+        return attrs
+
 
 class GuestSerializer(serializers.ModelSerializer):
     class Meta:

@@ -3,6 +3,7 @@
 import {
   CalendarDays,
   ClipboardList,
+  DoorClosed,
   LayoutDashboard,
   LineChart,
   LogOut,
@@ -12,13 +13,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import type { UserRole } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  hideForReceptionist?: boolean;
+  /** If set, only these roles see the link. Omit to show to everyone. */
+  allowedRoles?: UserRole[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -28,13 +31,19 @@ const NAV_ITEMS: NavItem[] = [
     href: "/expenses",
     label: "Expenses",
     icon: Receipt,
-    hideForReceptionist: true,
+    allowedRoles: ["MANAGER", "ADMIN"],
   },
   {
     href: "/reports",
     label: "Reports",
     icon: LineChart,
-    hideForReceptionist: true,
+    allowedRoles: ["ADMIN"],
+  },
+  {
+    href: "/rooms",
+    label: "Rooms",
+    icon: DoorClosed,
+    allowedRoles: ["ADMIN"],
   },
 ];
 
@@ -44,11 +53,11 @@ export function SidebarNav() {
   const { data: user, isLoading } = useCurrentUser();
 
   const visibleItems = NAV_ITEMS.filter((item) => {
-    if (!item.hideForReceptionist) return true;
+    if (!item.allowedRoles) return true;
     // While the role is still loading, hide restricted links by default
-    // rather than flashing them for a receptionist.
+    // rather than flashing them for a role that shouldn't see them.
     if (isLoading || !user) return false;
-    return user.role !== "RECEPTIONIST";
+    return item.allowedRoles.includes(user.role);
   });
 
   async function handleLogout() {

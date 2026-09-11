@@ -13,26 +13,45 @@ import { useCreateExpense, useExpensesList } from "@/lib/hooks/use-expenses";
 import type { ExpenseCategory } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/toast";
+import { RequireRole } from "@/components/require-role";
 
 const PAGE_SIZE = 15;
 
 export default function ExpensesPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900">Expenses</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Track labor, contractor wages, and material purchases.
-        </p>
-      </div>
+    <RequireRole allowedRoles={["MANAGER", "ADMIN"]}>
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900">Expenses</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Track labor, contractor wages, and material purchases.
+          </p>
+        </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
-        <NewExpenseForm />
-        <RecentExpensesFeed />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
+          <NewExpenseForm />
+          <RecentExpensesFeed />
+        </div>
       </div>
-    </div>
+    </RequireRole>
   );
 }
+
+const JOB_DETAILS_PLACEHOLDER: Record<ExpenseCategory, string> = {
+  LABOR: "e.g. 2 putty walls bedroom, roof repair",
+  MATERIALS: "e.g. Cement, tiles, plumbing fixtures",
+  UTILITIES: "e.g. Electricity bill, water bill",
+  MAINTENANCE: "e.g. AC servicing, pest control",
+  OTHER: "Brief description",
+};
+
+const PAID_TO_LABEL: Record<ExpenseCategory, string> = {
+  LABOR: "Paid To (Contractor/Worker)",
+  MATERIALS: "Paid To (Supplier)",
+  UTILITIES: "Paid To (Provider)",
+  MAINTENANCE: "Paid To (Vendor)",
+  OTHER: "Paid To",
+};
 
 function NewExpenseForm() {
   const createExpense = useCreateExpense();
@@ -46,6 +65,17 @@ function NewExpenseForm() {
   const [amount, setAmount] = useState("");
   const [materialsPurchased, setMaterialsPurchased] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const showWorkerCount = category === "LABOR";
+  const showMaterialsPurchased = category === "MATERIALS";
+
+  function handleCategoryChange(next: ExpenseCategory) {
+    setCategory(next);
+    // Clear fields that no longer apply so a stale value from a previous
+    // category can't be silently submitted with the new one.
+    if (next !== "LABOR") setWorkerCount("");
+    if (next !== "MATERIALS") setMaterialsPurchased("");
+  }
 
   function resetForm() {
     setJobDetails("");
@@ -67,16 +97,24 @@ function NewExpenseForm() {
       setError("Enter a valid amount.");
       return;
     }
+    if (showWorkerCount && workerCount && parseInt(workerCount, 10) <= 0) {
+      setError("Worker count must be at least 1.");
+      return;
+    }
 
     try {
       await createExpense.mutateAsync({
         date,
         category,
         job_details: jobDetails.trim(),
-        worker_count: workerCount ? parseInt(workerCount, 10) : null,
+        worker_count:
+          showWorkerCount && workerCount ? parseInt(workerCount, 10) : null,
         paid_to: paidTo.trim(),
         amount,
-        materials_purchased: materialsPurchased.trim() || null,
+        materials_purchased:
+          showMaterialsPurchased && materialsPurchased.trim()
+            ? materialsPurchased.trim()
+            : null,
       });
       resetForm();
       showToast("Expense recorded.");
@@ -105,7 +143,9 @@ function NewExpenseForm() {
         <Field label="Category" required>
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+            onChange={(e) =>
+              handleCategoryChange(e.target.value as ExpenseCategory)
+            }
             className="input"
           >
             {EXPENSE_CATEGORIES.map((cat) => (
@@ -120,32 +160,45 @@ function NewExpenseForm() {
           <input
             value={jobDetails}
             onChange={(e) => setJobDetails(e.target.value)}
-            placeholder="e.g. 2 putty walls bedroom, roof repair"
+            placeholder={JOB_DETAILS_PLACEHOLDER[category]}
             className="input"
             required
           />
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
+        {showWorkerCount && (
           <Field label="Worker Count">
             <input
               type="number"
-              min="0"
+              min="1"
               value={workerCount}
               onChange={(e) => setWorkerCount(e.target.value)}
+              placeholder="e.g. 3"
               className="input"
             />
           </Field>
-          <Field label="Paid To" required>
+        )}
+
+        {showMaterialsPurchased && (
+          <Field label="Materials Purchased">
             <input
-              value={paidTo}
-              onChange={(e) => setPaidTo(e.target.value)}
-              placeholder="e.g. Natraj"
+              value={materialsPurchased}
+              onChange={(e) => setMaterialsPurchased(e.target.value)}
+              placeholder="e.g. Kitchen roof sheets, Railing"
               className="input"
-              required
             />
           </Field>
-        </div>
+        )}
+
+        <Field label={PAID_TO_LABEL[category]} required>
+          <input
+            value={paidTo}
+            onChange={(e) => setPaidTo(e.target.value)}
+            placeholder="e.g. Natraj"
+            className="input"
+            required
+          />
+        </Field>
 
         <Field label="Amount (Rs.)" required>
           <input
@@ -156,15 +209,6 @@ function NewExpenseForm() {
             onChange={(e) => setAmount(e.target.value)}
             className="input"
             required
-          />
-        </Field>
-
-        <Field label="Materials Purchased">
-          <input
-            value={materialsPurchased}
-            onChange={(e) => setMaterialsPurchased(e.target.value)}
-            placeholder="e.g. Kitchen roof sheets, Railing"
-            className="input"
           />
         </Field>
 

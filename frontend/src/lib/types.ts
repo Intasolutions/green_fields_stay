@@ -169,6 +169,12 @@ export interface FinancialSummaryReport {
   total_expenses: number;
   expenses_by_category: Record<ExpenseCategory, number>;
   net_profit: number;
+  booking_count: number;
+  average_booking_value: number;
+  cancelled_count: number;
+  bookings_by_source: Record<BookingSource, number>;
+  revenue_by_source: Record<BookingSource, number>;
+  payments_by_method: Record<PaymentMethod, number>;
 }
 
 export interface OccupancyReportRoom {

@@ -10,4 +10,5 @@ export const PROTECTED_ROUTE_PREFIXES = [
   "/bookings",
   "/expenses",
   "/reports",
+  "/rooms",
 ];

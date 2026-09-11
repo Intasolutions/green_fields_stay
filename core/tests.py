@@ -815,6 +815,96 @@ class FinancialSummaryReportTests(BaseAPITestCase):
         self.assertEqual(Decimal(data["total_ota_commissions"]), Decimal("800.00"))
         self.assertEqual(Decimal(data["total_net_payout"]), Decimal("9200.00"))
 
+    def test_booking_count_and_average_value(self):
+        self._create_booking_direct(
+            self.room1, date(2026, 3, 5), date(2026, 3, 8), "6000.00"
+        )
+        self._create_booking_ota(
+            self.room2, date(2026, 3, 10), date(2026, 3, 12), "4000.00", "800.00"
+        )
+
+        url = reverse("report-financial-summary")
+        response = self.client.get(url, {"from": "2026-03-01", "to": "2026-03-31"})
+
+        data = response.data
+        self.assertEqual(data["booking_count"], 2)
+        self.assertEqual(Decimal(data["average_booking_value"]), Decimal("5000.00"))
+
+    def test_bookings_by_source_breakdown(self):
+        self._create_booking_direct(
+            self.room1, date(2026, 3, 5), date(2026, 3, 8), "6000.00"
+        )
+        self._create_booking_direct(
+            self.room2, date(2026, 3, 6), date(2026, 3, 9), "3000.00"
+        )
+        self._create_booking_ota(
+            self.room3, date(2026, 3, 10), date(2026, 3, 12), "4000.00", "800.00"
+        )
+
+        url = reverse("report-financial-summary")
+        response = self.client.get(url, {"from": "2026-03-01", "to": "2026-03-31"})
+
+        data = response.data
+        self.assertEqual(data["bookings_by_source"]["DIRECT"], 2)
+        self.assertEqual(data["bookings_by_source"]["MMT"], 1)
+        self.assertEqual(data["bookings_by_source"]["AGODA"], 0)
+        self.assertEqual(
+            Decimal(data["revenue_by_source"]["DIRECT"]), Decimal("9000.00")
+        )
+        self.assertEqual(
+            Decimal(data["revenue_by_source"]["MMT"]), Decimal("4000.00")
+        )
+
+    def test_cancelled_count_reported_separately(self):
+        self._create_booking_direct(
+            self.room1,
+            date(2026, 3, 5),
+            date(2026, 3, 8),
+            "6000.00",
+            status_=Booking.Status.CANCELLED,
+        )
+        self._create_booking_direct(
+            self.room2, date(2026, 3, 6), date(2026, 3, 9), "3000.00"
+        )
+
+        url = reverse("report-financial-summary")
+        response = self.client.get(url, {"from": "2026-03-01", "to": "2026-03-31"})
+
+        data = response.data
+        self.assertEqual(data["cancelled_count"], 1)
+        self.assertEqual(data["booking_count"], 1)
+
+    def test_payments_by_method_breakdown(self):
+        booking = self._create_booking_direct(
+            self.room1, date(2026, 3, 5), date(2026, 3, 8), "6000.00"
+        )
+        Payment.objects.create(
+            booking=booking,
+            amount=Decimal("2000.00"),
+            payment_type=Payment.PaymentType.ADVANCE,
+            payment_method=Payment.PaymentMethod.CASH,
+            recorded_by=self.admin,
+        )
+        Payment.objects.create(
+            booking=booking,
+            amount=Decimal("4000.00"),
+            payment_type=Payment.PaymentType.SETTLEMENT,
+            payment_method=Payment.PaymentMethod.UPI,
+            recorded_by=self.admin,
+        )
+
+        url = reverse("report-financial-summary")
+        response = self.client.get(url, {"from": "2026-03-01", "to": "2026-03-31"})
+
+        data = response.data
+        self.assertEqual(
+            Decimal(data["payments_by_method"]["CASH"]), Decimal("2000.00")
+        )
+        self.assertEqual(
+            Decimal(data["payments_by_method"]["UPI"]), Decimal("4000.00")
+        )
+        self.assertEqual(Decimal(data["payments_by_method"]["CARD"]), Decimal("0"))
+
     def test_cancelled_bookings_excluded_from_revenue(self):
         self._create_booking_direct(
             self.room1,
@@ -1026,3 +1116,112 @@ class GuestSearchTests(BaseAPITestCase):
         response = self.client.get(url, {"search": "9"})
 
         self.assertIsInstance(response.data, list)
+
+
+class RoomManagementTests(BaseAPITestCase):
+    def test_receptionist_can_list_rooms(self):
+        url = reverse("room-list")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 11)
+
+    def test_receptionist_cannot_add_room(self):
+        url = reverse("room-list")
+        response = self.client.post(url, {"number": "12"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_cannot_add_room(self):
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("room-list")
+        response = self.client.post(url, {"number": "12"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_add_room(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-list")
+        response = self.client.post(url, {"number": "12"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["number"], "12")
+        self.assertTrue(response.data["is_active"])
+
+    def test_admin_cannot_add_duplicate_room_number(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-list")
+        response = self.client.post(url, {"number": "1"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_can_rename_room(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(url, {"number": "1A"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["number"], "1A")
+
+    def test_admin_can_deactivate_room_with_no_active_bookings(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(url, {"is_active": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(response.data["is_active"])
+
+    def test_admin_cannot_deactivate_room_with_current_booking(self):
+        self.client.force_authenticate(user=self.admin)
+
+        booking_url = reverse("booking-list")
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            date.today(),
+            date.today() + timedelta(days=2),
+        )
+        self.client.post(booking_url, payload, format="json")
+
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(url, {"is_active": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("is_active", response.data)
+
+    def test_admin_can_deactivate_room_after_checkout(self):
+        self.client.force_authenticate(user=self.admin)
+
+        booking_url = reverse("booking-list")
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            date.today() - timedelta(days=5),
+            date.today() - timedelta(days=1),
+        )
+        create_response = self.client.post(booking_url, payload, format="json")
+        booking_id = create_response.data["id"]
+
+        Booking.objects.filter(id=booking_id).update(
+            status=Booking.Status.CHECKED_OUT
+        )
+
+        url = reverse("room-detail", args=[self.room1.id])
+        response = self.client.patch(url, {"is_active": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+    def test_deactivated_room_excluded_from_availability(self):
+        self.client.force_authenticate(user=self.admin)
+        room_url = reverse("room-detail", args=[self.room1.id])
+        self.client.patch(room_url, {"is_active": False}, format="json")
+
+        availability_url = reverse("room-availability")
+        response = self.client.get(
+            availability_url,
+            {
+                "start_date": date.today().isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
+        )
+
+        room_numbers = [r["room"]["number"] for r in response.data]
+        self.assertNotIn("1", room_numbers)
