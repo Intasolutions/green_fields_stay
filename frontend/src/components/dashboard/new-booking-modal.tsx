@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCreateBooking } from "@/lib/hooks/use-booking-mutations";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { BOOKING_SOURCES, OTA_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
 import { addDays, toDateOnly } from "@/lib/date-utils";
-import type { BookingSource, PaymentMethod, Room } from "@/lib/types";
+import type { BookingSource, Guest, PaymentMethod, Room } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Modal } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
+import { GuestLookupField } from "@/components/dashboard/guest-lookup-field";
 
 interface NewBookingModalProps {
   rooms: Room[];
@@ -28,7 +30,10 @@ export function NewBookingModal({
   onCreated,
 }: NewBookingModalProps) {
   const createBooking = useCreateBooking();
+  const { showToast } = useToast();
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
+  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [selectedRoomIds, setSelectedRoomIds] = useState<number[]>(
     initialRoomId ? [initialRoomId] : [],
   );
@@ -59,6 +64,10 @@ export function NewBookingModal({
     return net.toFixed(2);
   }, [totalAmount, otaCommission]);
 
+  useEffect(() => {
+    nameInputRef.current?.focus();
+  }, []);
+
   function toggleRoom(roomId: number) {
     setSelectedRoomIds((prev) =>
       prev.includes(roomId)
@@ -75,7 +84,7 @@ export function NewBookingModal({
       setFormError("Select at least one room.");
       return;
     }
-    if (!guestName.trim() || !guestPhone.trim()) {
+    if (!selectedGuest && (!guestName.trim() || !guestPhone.trim())) {
       setFormError("Guest name and phone are required.");
       return;
     }
@@ -94,11 +103,13 @@ export function NewBookingModal({
 
     try {
       await createBooking.mutateAsync({
-        guest: {
-          name: guestName.trim(),
-          phone: guestPhone.trim(),
-          aadhar_number: guestAadhar.trim() || null,
-        },
+        guest: selectedGuest
+          ? { id: selectedGuest.id }
+          : {
+              name: guestName.trim(),
+              phone: guestPhone.trim(),
+              aadhar_number: guestAadhar.trim() || null,
+            },
         room_ids: selectedRoomIds,
         source,
         ota_reference_id: isOta ? otaReferenceId.trim() || null : null,
@@ -118,6 +129,7 @@ export function NewBookingModal({
             : undefined,
       });
 
+      showToast("Booking created successfully.");
       onCreated();
     } catch (error) {
       setFormError(getApiErrorMessage(error, "Could not create booking."));
@@ -131,30 +143,52 @@ export function NewBookingModal({
           <h3 className="mb-2 text-sm font-semibold text-slate-700">
             Guest Details
           </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Name" required>
-              <input
-                value={guestName}
-                onChange={(e) => setGuestName(e.target.value)}
-                className="input"
-                required
-              />
-            </Field>
-            <Field label="Phone" required>
-              <input
-                value={guestPhone}
-                onChange={(e) => setGuestPhone(e.target.value)}
-                className="input"
-                required
-              />
-            </Field>
-            <Field label="Aadhaar (optional)">
-              <input
-                value={guestAadhar}
-                onChange={(e) => setGuestAadhar(e.target.value)}
-                className="input"
-              />
-            </Field>
+
+          <div className="mb-3">
+            <GuestLookupField
+              selectedGuest={selectedGuest}
+              onSelectGuest={setSelectedGuest}
+            />
+          </div>
+
+          {!selectedGuest && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Name" required>
+                <input
+                  ref={nameInputRef}
+                  value={guestName}
+                  onChange={(e) => setGuestName(e.target.value)}
+                  className="input"
+                  required
+                />
+              </Field>
+              <Field label="Phone" required>
+                <input
+                  value={guestPhone}
+                  onChange={(e) => setGuestPhone(e.target.value)}
+                  className="input"
+                  required
+                />
+              </Field>
+              <Field label="Aadhaar (optional)">
+                <input
+                  value={guestAadhar}
+                  onChange={(e) => setGuestAadhar(e.target.value)}
+                  className="input"
+                />
+              </Field>
+              <Field label="Profile Tag">
+                <input
+                  value={profileTag}
+                  onChange={(e) => setProfileTag(e.target.value)}
+                  placeholder="e.g. Family of 4, Couple"
+                  className="input"
+                />
+              </Field>
+            </div>
+          )}
+
+          {selectedGuest && (
             <Field label="Profile Tag">
               <input
                 value={profileTag}
@@ -163,7 +197,7 @@ export function NewBookingModal({
                 className="input"
               />
             </Field>
-          </div>
+          )}
         </section>
 
         <section>

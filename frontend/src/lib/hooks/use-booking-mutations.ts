@@ -67,6 +67,27 @@ export function useCheckOut() {
   });
 }
 
+export function useCancelBooking() {
+  const invalidate = useInvalidateBookingQueries();
+
+  return useMutation({
+    mutationFn: async ({
+      bookingId,
+      cancellationReason,
+    }: {
+      bookingId: string;
+      cancellationReason?: string;
+    }) => {
+      const response = await apiClient.patch<Booking>(
+        `/bookings/${bookingId}/cancel/`,
+        { cancellation_reason: cancellationReason ?? "" },
+      );
+      return response.data;
+    },
+    onSuccess: (data) => invalidate(data.id),
+  });
+}
+
 export function useAddPayment() {
   const invalidate = useInvalidateBookingQueries();
 

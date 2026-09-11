@@ -11,13 +11,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Booking, BookingRoom, Expense, Payment, Room
+from .models import Booking, BookingRoom, Expense, Guest, Payment, Room
 from .permissions import IsAdmin, IsManagerOrAdmin
 from .serializers import (
     BookingCancelSerializer,
     BookingCreateSerializer,
     BookingSerializer,
     ExpenseSerializer,
+    GuestSerializer,
     PaymentSerializer,
     RoomSerializer,
     UserSerializer,
@@ -70,7 +71,7 @@ class RoomAvailabilityView(APIView):
             booking__status__in=ACTIVE_BOOKING_STATUSES,
             booking__check_in__lt=end_date,
             booking__check_out__gt=start_date,
-        ).select_related("booking", "room")
+        ).select_related("booking", "room").prefetch_related("booking__payments")
 
         bookings_by_room = {}
         for allocation in overlapping_allocations:
@@ -83,6 +84,7 @@ class RoomAvailabilityView(APIView):
                     "check_out": allocation.booking.check_out,
                     "status": allocation.booking.status,
                     "source": allocation.booking.source,
+                    "balance_due": allocation.booking.balance_due,
                 }
             )
 
@@ -100,12 +102,35 @@ class RoomAvailabilityView(APIView):
         return Response(data)
 
 
+class GuestViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only lookup used by the New Booking form to find returning guests."""
+
+    queryset = Guest.objects.all().order_by("-created_at")
+    serializer_class = GuestSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                models.Q(name__icontains=search) | models.Q(phone__icontains=search)
+            )
+        return qs[:10] if search else qs[:0]
+
+
 class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.select_related("guest").prefetch_related(
         "allocated_rooms__room", "payments"
     )
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_permissions(self):
+        if self.action == "cancel":
+            return [IsAuthenticated(), IsAdmin()]
+        return super().get_permissions()
 
     def get_serializer_class(self):
         if self.action == "create":

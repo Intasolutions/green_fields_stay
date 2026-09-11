@@ -6,6 +6,7 @@ from .views import (
     BookingViewSet,
     ExpenseViewSet,
     FinancialSummaryReportView,
+    GuestViewSet,
     MeView,
     OccupancyReportView,
     RoomAvailabilityView,
@@ -14,6 +15,7 @@ from .views import (
 router = DefaultRouter()
 router.register("bookings", BookingViewSet, basename="booking")
 router.register("expenses", ExpenseViewSet, basename="expense")
+router.register("guests", GuestViewSet, basename="guest")
 
 urlpatterns = [
     path("auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),

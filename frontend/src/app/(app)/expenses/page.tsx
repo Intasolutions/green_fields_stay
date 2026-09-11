@@ -12,6 +12,7 @@ import {
 import { useCreateExpense, useExpensesList } from "@/lib/hooks/use-expenses";
 import type { ExpenseCategory } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { useToast } from "@/components/ui/toast";
 
 const PAGE_SIZE = 15;
 
@@ -35,6 +36,7 @@ export default function ExpensesPage() {
 
 function NewExpenseForm() {
   const createExpense = useCreateExpense();
+  const { showToast } = useToast();
 
   const [date, setDate] = useState(toDateOnly(new Date()));
   const [category, setCategory] = useState<ExpenseCategory>("LABOR");
@@ -44,7 +46,6 @@ function NewExpenseForm() {
   const [amount, setAmount] = useState("");
   const [materialsPurchased, setMaterialsPurchased] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   function resetForm() {
     setJobDetails("");
@@ -57,7 +58,6 @@ function NewExpenseForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setSuccessMessage(null);
 
     if (!jobDetails.trim() || !paidTo.trim()) {
       setError("Job details and paid-to are required.");
@@ -79,7 +79,7 @@ function NewExpenseForm() {
         materials_purchased: materialsPurchased.trim() || null,
       });
       resetForm();
-      setSuccessMessage("Expense recorded.");
+      showToast("Expense recorded.");
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not record expense."));
     }
@@ -173,12 +173,6 @@ function NewExpenseForm() {
             {error}
           </p>
         )}
-        {successMessage && (
-          <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            {successMessage}
-          </p>
-        )}
-
         <button
           type="submit"
           disabled={createExpense.isPending}

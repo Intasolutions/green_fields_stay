@@ -270,6 +270,7 @@ class DoubleBookingValidationTests(BaseAPITestCase):
             self.room1, base, base + timedelta(days=5)
         )
 
+        self.client.force_authenticate(user=self.admin)
         cancel_url = reverse("booking-cancel", args=[first["id"]])
         cancel_response = self.client.patch(
             cancel_url, {"cancellation_reason": "Guest request"}, format="json"
@@ -277,6 +278,7 @@ class DoubleBookingValidationTests(BaseAPITestCase):
         self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
         self.assertEqual(cancel_response.data["status"], Booking.Status.CANCELLED)
 
+        self.client.force_authenticate(user=self.user)
         url = reverse("booking-list")
         payload = self.make_booking_payload(
             [self.room1.id], base, base + timedelta(days=5)
@@ -403,6 +405,42 @@ class BookingLifecycleTests(BaseAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_receptionist_cannot_cancel_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        url = reverse("booking-cancel", args=[booking["id"]])
+        response = self.client.patch(
+            url, {"cancellation_reason": "Test"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_cannot_cancel_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("booking-cancel", args=[booking["id"]])
+        response = self.client.patch(
+            url, {"cancellation_reason": "Test"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_cancel_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-cancel", args=[booking["id"]])
+        response = self.client.patch(
+            url, {"cancellation_reason": "Test"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], Booking.Status.CANCELLED)
+
 
 class RoomAvailabilityViewTests(BaseAPITestCase):
     def test_availability_reflects_bookings(self):
@@ -457,6 +495,37 @@ class RoomAvailabilityViewTests(BaseAPITestCase):
             r for r in response.data if r["room"]["number"] == "1"
         )
         self.assertEqual(room1_entry["bookings"][0]["profile_tag"], "Family of 4")
+
+    def test_availability_includes_balance_due(self):
+        base = date.today() + timedelta(days=1)
+        url = reverse("booking-list")
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            base,
+            base + timedelta(days=2),
+            total_amount="5000.00",
+            initial_payment={
+                "amount": "2000.00",
+                "payment_method": Payment.PaymentMethod.CASH,
+            },
+        )
+        self.client.post(url, payload, format="json")
+
+        availability_url = reverse("room-availability")
+        response = self.client.get(
+            availability_url,
+            {
+                "start_date": base.isoformat(),
+                "end_date": (base + timedelta(days=2)).isoformat(),
+            },
+        )
+
+        room1_entry = next(
+            r for r in response.data if r["room"]["number"] == "1"
+        )
+        self.assertEqual(
+            Decimal(room1_entry["bookings"][0]["balance_due"]), Decimal("3000.00")
+        )
 
     def test_missing_dates_returns_400(self):
         availability_url = reverse("room-availability")
@@ -918,3 +987,42 @@ class AuthTests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
+
+
+class GuestSearchTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        from .models import Guest
+
+        self.guest1 = Guest.objects.create(name="Ravi Kumar", phone="9111111111")
+        self.guest2 = Guest.objects.create(name="Sita Devi", phone="9222222222")
+
+    def test_search_by_name_returns_matches(self):
+        url = reverse("guest-list")
+        response = self.client.get(url, {"search": "ravi"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["name"], "Ravi Kumar")
+
+    def test_search_by_phone_returns_matches(self):
+        url = reverse("guest-list")
+        response = self.client.get(url, {"search": "92222"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["name"], "Sita Devi")
+
+    def test_empty_search_returns_no_results(self):
+        """Without a search term, the endpoint must not dump the full guest list."""
+        url = reverse("guest-list")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 0)
+
+    def test_search_is_not_paginated(self):
+        url = reverse("guest-list")
+        response = self.client.get(url, {"search": "9"})
+
+        self.assertIsInstance(response.data, list)

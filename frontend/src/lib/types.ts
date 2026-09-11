@@ -45,6 +45,7 @@ export interface RoomAvailabilityBooking {
   check_out: string;
   status: BookingStatus;
   source: BookingSource;
+  balance_due: string;
 }
 
 export interface RoomAvailabilityEntry {
