@@ -1,13 +1,22 @@
-# Lodge Management System — Backend
+# Lodge Management System
 
-Django 5.2 + DRF backend for the 11-room lodge. See [SPEC.md](SPEC.md) for the
-full specification. Currently implements **Phase 1** (models, migrations, room
-seeding) and **Phase 2** (serializers, booking overlap validation, core
-endpoints, automated tests).
+An 11-room lodge front-desk system: booking calendar, guest/companion intake,
+payments, expenses, occupancy and financial reports, room management, and
+staff/user administration. See [SPEC.md](SPEC.md) for the original
+specification.
 
-## Setup
+```
+green_fields_stay/
+├── backend/    Django 5.2 + DRF API (PostgreSQL via Neon)
+├── frontend/   Next.js (App Router) + TypeScript + Tailwind
+├── SPEC.md
+└── README.md
+```
+
+## Backend setup
 
 ```bash
+cd backend
 python -m venv venv
 venv\Scripts\activate        # Windows
 pip install -r requirements.txt
@@ -26,8 +35,10 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000
 
 Without a `.env`/`DATABASE_URL`, the project falls back to a local
 `db.sqlite3` file so it's runnable before Neon credentials are available.
+`manage.py test` always runs against an in-memory SQLite database regardless
+of `.env`, so the suite stays fast and never touches the real database.
 
-## Migrate & seed rooms
+### Migrate & seed rooms
 
 ```bash
 python manage.py migrate
@@ -40,41 +51,60 @@ migration. To (re)seed manually at any time:
 python manage.py seed_rooms
 ```
 
-## Create an admin user
+### Create an admin user
 
 ```bash
 python manage.py createsuperuser
 ```
 
 Set the `role` field via `/admin/` or the shell to `ADMIN`, `MANAGER`, or
-`RECEPTIONIST` (defaults to `RECEPTIONIST`).
+`RECEPTIONIST` (defaults to `RECEPTIONIST`). Once at least one Admin exists,
+further staff accounts can be created from the app's `/users` page.
 
-## Run the server
+### Run the server
 
 ```bash
 python manage.py runserver
 ```
 
-## Run tests
+### Run tests
 
 ```bash
 python manage.py test core
 ```
 
-29 tests covering guest intake, multi-room bookings, initial payments, the
-full double-booking overlap matrix, check-in/check-out/cancel lifecycle,
-balance-due enforcement, and expense role permissions.
+108 tests covering guest/companion intake, multi-room bookings, the full
+double-booking overlap matrix, check-in/check-out/cancel lifecycle,
+balance-due enforcement, booking edits, room specifications, expense
+category management, user management, and role-based permissions throughout.
 
-## API surface (Phase 1 & 2)
+## Frontend setup
 
-* `POST /api/auth/token/`, `POST /api/auth/token/refresh/`, `GET /api/auth/me/`
-* `GET /api/rooms/availability/?start_date=&end_date=`
-* `GET/POST /api/bookings/`, `GET /api/bookings/{id}/`
-* `PATCH /api/bookings/{id}/check-in/`
-* `PATCH /api/bookings/{id}/check-out/` (`{"override_balance": true}` to bypass balance check)
-* `PATCH /api/bookings/{id}/cancel/`
-* `POST /api/bookings/{id}/payments/`
-* `GET/POST /api/expenses/` (Manager/Admin only)
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local   # set NEXT_PUBLIC_API_BASE_URL if needed
+npm run dev
+```
 
-Reporting endpoints (`/api/reports/...`) are part of Phase 3 and not yet
-implemented.
+Runs on http://localhost:3000 and expects the backend at
+`http://127.0.0.1:8000` by default (see `NEXT_PUBLIC_API_BASE_URL` in
+`.env.local`).
+
+```bash
+npm run build   # production build
+npm run lint     # eslint
+```
+
+## API surface
+
+* **Auth**: `POST /api/auth/token/`, `POST /api/auth/token/refresh/`, `GET /api/auth/me/`
+* **Rooms**: `GET/POST /api/rooms/`, `PATCH /api/rooms/{id}/`, `GET /api/rooms/availability/?start_date=&end_date=` (Admin manages; all roles can read)
+* **Bookings**: `GET/POST /api/bookings/`, `GET /api/bookings/{id}/`, `PATCH /api/bookings/{id}/` (Admin-only correction: amount, dates, source, tag)
+  * `PATCH /api/bookings/{id}/check-in/`, `PATCH /api/bookings/{id}/check-out/` (`{"override_balance": true}` to bypass balance check)
+  * `PATCH /api/bookings/{id}/cancel/` (Admin only), `POST /api/bookings/{id}/payments/`
+* **Guests**: `GET /api/guests/?search=` (returning-guest lookup for the booking form)
+* **Expenses**: `GET/POST /api/expenses/` (Manager/Admin), filterable by `from_date`, `to_date`, `category`
+* **Expense categories**: `GET/POST /api/expense-categories/`, `PATCH /api/expense-categories/{id}/` (Admin manages; Manager/Admin can read)
+* **Reports** (Admin only): `GET /api/reports/financial-summary/?from=&to=`, `GET /api/reports/occupancy/?from=&to=`
+* **Users** (Admin only): `GET/POST /api/users/`, `PATCH /api/users/{id}/` (role, active status)
