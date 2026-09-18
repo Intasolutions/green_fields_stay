@@ -131,7 +131,7 @@ export default function BookingsPage() {
               value={searchInput}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Guest name or phone..."
-              className="input w-56 pl-9"
+              className="input w-full sm:w-56 pl-9"
             />
           </div>
         </FilterField>
@@ -177,7 +177,104 @@ export default function BookingsPage() {
         </FilterField>
       </FilterBar>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      {/* ── Mobile: card list (hidden on md+) ── */}
+      <div className="space-y-3 md:hidden">
+        {isPending && (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-slate-500 shadow-sm">
+            Loading bookings...
+          </div>
+        )}
+        {isError && (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-red-600 shadow-sm">
+            Failed to load bookings. Please try again.
+          </div>
+        )}
+        {!isPending && !isError && data?.results.length === 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-slate-400 shadow-sm">
+            No bookings match your filters.
+          </div>
+        )}
+        {data?.results.map((booking) => {
+          const balanceDue = parseFloat(booking.balance_due);
+          const nights = nightsBetween(booking.check_in, booking.check_out);
+          return (
+            <div
+              key={booking.id}
+              onClick={() => setSelectedBookingId(booking.id)}
+              className="cursor-pointer rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                    {initials(booking.guest.name)}
+                  </span>
+                  <div>
+                    <div className="font-medium text-slate-900">{booking.guest.name}</div>
+                    <div className="text-xs text-slate-400">{booking.guest.phone}</div>
+                  </div>
+                </div>
+                <StatusBadge status={booking.status} />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
+                <div>
+                  <p className="text-xs text-slate-400">Room(s)</p>
+                  <p className="font-medium text-slate-700">
+                    {booking.allocated_rooms.map((r) => r.room_number).join(", ") || "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Source</p>
+                  <SourceLogo source={booking.source} size="xs" withLabel />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Stay</p>
+                  <p className="font-medium text-slate-700">
+                    {booking.check_in} → {booking.check_out}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {nights} night{nights === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Total</p>
+                  <p className="font-medium text-slate-900">
+                    {formatCurrency(booking.total_amount)}
+                  </p>
+                  <p className={cn("text-xs font-medium", balanceDue > 0 ? "text-red-600" : "text-emerald-600")}>
+                    Balance: {formatCurrency(booking.balance_due)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {data && data.count > 0 && (
+          <div className="flex items-center justify-between py-2 text-sm text-slate-500">
+            <span>
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, data.count)} of {data.count}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages || isPlaceholderData}
+                className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop: table (hidden below md) ── */}
+      <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm md:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[960px] text-sm">
             <thead>
@@ -199,7 +296,6 @@ export default function BookingsPage() {
                   </td>
                 </tr>
               )}
-
               {isError && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-red-600">
@@ -207,7 +303,6 @@ export default function BookingsPage() {
                   </td>
                 </tr>
               )}
-
               {!isPending && !isError && data?.results.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
@@ -215,7 +310,6 @@ export default function BookingsPage() {
                   </td>
                 </tr>
               )}
-
               {data?.results.map((booking) => {
                 const balanceDue = parseFloat(booking.balance_due);
                 const nights = nightsBetween(booking.check_in, booking.check_out);
@@ -277,7 +371,6 @@ export default function BookingsPage() {
             </tbody>
           </table>
         </div>
-
         {data && data.count > 0 && (
           <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
             <span>
