@@ -315,7 +315,7 @@ export function BookingDetailModal({
                     <p className="text-xs font-medium text-slate-500">
                       Record Settlement Payment
                     </p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="flex flex-col gap-2 sm:grid sm:grid-cols-3">
                       <input
                         type="number"
                         min="0"
@@ -323,14 +323,14 @@ export function BookingDetailModal({
                         placeholder="Amount"
                         value={paymentAmount}
                         onChange={(e) => setPaymentAmount(e.target.value)}
-                        className="input col-span-1"
+                        className="input"
                       />
                       <select
                         value={paymentMethod}
                         onChange={(e) =>
                           setPaymentMethod(e.target.value as PaymentMethod)
                         }
-                        className="input col-span-1"
+                        className="input"
                       >
                         <option value="CASH">Cash</option>
                         <option value="UPI">UPI</option>
@@ -339,7 +339,7 @@ export function BookingDetailModal({
                       <button
                         type="submit"
                         disabled={addPayment.isPending}
-                        className="col-span-1 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                       >
                         {addPayment.isPending ? "Saving..." : "Record"}
                       </button>
