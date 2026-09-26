@@ -212,6 +212,7 @@ export interface Expense {
   paid_to: string;
   amount: string;
   materials_purchased: string | null;
+  is_paid: boolean;
   created_by: number;
 }
 
@@ -223,6 +224,7 @@ export interface CreateExpensePayload {
   paid_to: string;
   amount: string;
   materials_purchased?: string | null;
+  is_paid?: boolean;
 }
 
 export interface ApiErrorShape {

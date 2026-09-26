@@ -329,6 +329,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         date_from = params.get("from_date") or params.get("from")
         date_to = params.get("to_date") or params.get("to")
         category = params.get("category")
+        is_paid = params.get("is_paid")
 
         if date_from:
             qs = qs.filter(date__gte=parse_date(date_from))
@@ -336,6 +337,8 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             qs = qs.filter(date__lte=parse_date(date_to))
         if category:
             qs = qs.filter(category=category)
+        if is_paid is not None:
+            qs = qs.filter(is_paid=(is_paid.lower() == "true"))
         return qs
 
     def perform_create(self, serializer):
@@ -392,7 +395,9 @@ class FinancialSummaryReportView(APIView):
         for row in payments.values("payment_method").annotate(total=Sum("amount")):
             payments_by_method[row["payment_method"]] = row["total"] or 0
 
-        expenses = Expense.objects.filter(date__gte=date_from, date__lte=date_to)
+        expenses = Expense.objects.filter(
+            date__gte=date_from, date__lte=date_to, is_paid=True
+        )
         expense_total = expenses.aggregate(total=Sum("amount"))["total"] or 0
 
         expenses_by_category = {

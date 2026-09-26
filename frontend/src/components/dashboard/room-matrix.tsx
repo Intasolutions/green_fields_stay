@@ -156,7 +156,7 @@ export function RoomMatrix({ onNewBooking, onSelectBooking }: RoomMatrixProps) {
                     style={{ width: DAY_COL_WIDTH }}
                   >
                     <span className="uppercase tracking-wide">
-                      {day.toLocaleDateString("en-US", { weekday: "short" })}
+                      {day.toLocaleDateString("en-GB", { weekday: "short" })}
                     </span>
                     <span className="tabular-nums text-[13px] text-slate-700">
                       {day.getDate()}

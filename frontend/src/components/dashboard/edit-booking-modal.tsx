@@ -134,28 +134,13 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
           </Field>
 
           {isOta && (
-            <>
-              <Field label="OTA Reference ID">
-                <input
-                  value={otaReferenceId}
-                  onChange={(e) => setOtaReferenceId(e.target.value)}
-                  className="input"
-                />
-              </Field>
-              <Field label="Commission (Rs.)">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={otaCommission}
-                  onChange={(e) => setOtaCommission(e.target.value)}
-                  className="input"
-                />
-              </Field>
-              <Field label="Net Payout (Rs.)">
-                <input value={netPayout} readOnly className="input bg-slate-50" />
-              </Field>
-            </>
+            <Field label="OTA Reference ID">
+              <input
+                value={otaReferenceId}
+                onChange={(e) => setOtaReferenceId(e.target.value)}
+                className="input"
+              />
+            </Field>
           )}
         </div>
 

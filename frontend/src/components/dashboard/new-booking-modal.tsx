@@ -129,12 +129,8 @@ export function NewBookingModal({
         setFormError("Guest name and phone are required.");
         return;
       }
-      if (!guestAadhar.trim()) {
-        setFormError("Aadhaar number is required.");
-        return;
-      }
-      if (!isValidAadhaar(guestAadhar)) {
-        setFormError("Aadhaar number must be exactly 12 digits.");
+      if (guestAadhar.trim() && !isValidAadhaar(guestAadhar)) {
+        setFormError("Aadhaar number must be exactly 12 digits if provided.");
         return;
       }
     }
@@ -234,12 +230,16 @@ export function NewBookingModal({
               <Field label="Phone" required>
                 <input
                   value={guestPhone}
-                  onChange={(e) => setGuestPhone(e.target.value)}
+                  onChange={(e) =>
+                    setGuestPhone(e.target.value.replace(/\D/g, "").slice(0, 10))
+                  }
+                  inputMode="numeric"
+                  maxLength={10}
                   className="input"
                   required
                 />
               </Field>
-              <Field label="Aadhaar" required>
+              <Field label="Aadhaar">
                 <input
                   value={guestAadhar}
                   onChange={(e) =>
@@ -319,8 +319,14 @@ export function NewBookingModal({
                   <input
                     value={companion.phone}
                     onChange={(e) =>
-                      updateCompanion(companion.key, "phone", e.target.value)
+                      updateCompanion(
+                        companion.key,
+                        "phone",
+                        e.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
                     }
+                    inputMode="numeric"
+                    maxLength={10}
                     placeholder="Phone (optional)"
                     className="input flex-1"
                   />
@@ -445,28 +451,13 @@ export function NewBookingModal({
             </Field>
 
             {isOta && (
-              <>
-                <Field label="OTA Reference ID">
-                  <input
-                    value={otaReferenceId}
-                    onChange={(e) => setOtaReferenceId(e.target.value)}
-                    className="input"
-                  />
-                </Field>
-                <Field label="Commission (Rs.)">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={otaCommission}
-                    onChange={(e) => setOtaCommission(e.target.value)}
-                    className="input"
-                  />
-                </Field>
-                <Field label="Net Payout (Rs.)">
-                  <input value={netPayout} readOnly className="input bg-slate-50" />
-                </Field>
-              </>
+              <Field label="OTA Reference ID">
+                <input
+                  value={otaReferenceId}
+                  onChange={(e) => setOtaReferenceId(e.target.value)}
+                  className="input"
+                />
+              </Field>
             )}
           </div>
         </section>

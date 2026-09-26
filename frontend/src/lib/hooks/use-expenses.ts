@@ -10,15 +10,16 @@ export interface ExpensesListParams {
   fromDate?: string;
   toDate?: string;
   category?: number | "";
+  isPaid?: string;
   page?: number;
   pageSize?: number;
 }
 
 export function useExpensesList(params: ExpensesListParams) {
-  const { fromDate, toDate, category, page = 1, pageSize = 20 } = params;
+  const { fromDate, toDate, category, isPaid, page = 1, pageSize = 20 } = params;
 
   return useQuery({
-    queryKey: ["expenses", { fromDate, toDate, category, page, pageSize }],
+    queryKey: ["expenses", { fromDate, toDate, category, isPaid, page, pageSize }],
     queryFn: async () => {
       const response = await apiClient.get<PaginatedResponse<Expense>>(
         "/expenses/",
@@ -27,6 +28,7 @@ export function useExpensesList(params: ExpensesListParams) {
             from_date: fromDate || undefined,
             to_date: toDate || undefined,
             category: category || undefined,
+            is_paid: isPaid || undefined,
             page,
             page_size: pageSize,
           },
@@ -44,9 +46,9 @@ export function useExpensesList(params: ExpensesListParams) {
  * range rather than just the page currently on screen.
  */
 export async function fetchAllExpenses(
-  params: Pick<ExpensesListParams, "fromDate" | "toDate" | "category">,
+  params: Pick<ExpensesListParams, "fromDate" | "toDate" | "category" | "isPaid">,
 ): Promise<Expense[]> {
-  const { fromDate, toDate, category } = params;
+  const { fromDate, toDate, category, isPaid } = params;
   const results: Expense[] = [];
   let page = 1;
   const pageSize = 200;
@@ -59,6 +61,7 @@ export async function fetchAllExpenses(
           from_date: fromDate || undefined,
           to_date: toDate || undefined,
           category: category || undefined,
+          is_paid: isPaid || undefined,
           page,
           page_size: pageSize,
         },
@@ -78,6 +81,29 @@ export function useCreateExpense() {
   return useMutation({
     mutationFn: async (payload: CreateExpensePayload) => {
       const response = await apiClient.post<Expense>("/expenses/", payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+    },
+  });
+}
+
+export function useUpdateExpense() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      expenseId,
+      ...payload
+    }: {
+      expenseId: string;
+      is_paid?: boolean;
+    }) => {
+      const response = await apiClient.patch<Expense>(
+        `/expenses/${expenseId}/`,
+        payload,
+      );
       return response.data;
     },
     onSuccess: () => {

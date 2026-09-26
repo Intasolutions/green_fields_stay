@@ -29,11 +29,11 @@ export function getDateRange(start: Date, numDays: number): Date[] {
 }
 
 export function formatShortDate(date: Date): string {
-  return date.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
+  return date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
 export function formatMonthYear(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 export function isSameDate(a: Date, b: Date): boolean {

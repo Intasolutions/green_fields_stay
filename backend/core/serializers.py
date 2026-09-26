@@ -209,11 +209,7 @@ class GuestIntakeSerializer(serializers.Serializer):
         # returning guest looked up by id may predate this requirement.
         if not attrs.get("id"):
             aadhar_number = (attrs.get("aadhar_number") or "").strip()
-            if not aadhar_number:
-                raise serializers.ValidationError(
-                    {"aadhar_number": "Aadhaar number is required."}
-                )
-            if not AADHAAR_PATTERN.match(aadhar_number):
+            if aadhar_number and not AADHAAR_PATTERN.match(aadhar_number):
                 raise serializers.ValidationError(
                     {"aadhar_number": "Aadhaar number must be exactly 12 digits."}
                 )
@@ -524,6 +520,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "paid_to",
             "amount",
             "materials_purchased",
+            "is_paid",
             "created_by",
         ]
         read_only_fields = ["id", "created_by"]

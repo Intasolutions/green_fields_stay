@@ -203,6 +203,7 @@ class Expense(models.Model):
     paid_to = models.CharField(max_length=100)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     materials_purchased = models.CharField(max_length=255, null=True, blank=True)
+    is_paid = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         "core.User", on_delete=models.PROTECT, related_name="expenses_created"
     )

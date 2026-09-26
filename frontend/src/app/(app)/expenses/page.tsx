@@ -22,6 +22,7 @@ import {
   useCreateExpenseCategory,
   useExpenseCategories,
   useExpensesList,
+  useUpdateExpense,
   useUpdateExpenseCategory,
 } from "@/lib/hooks/use-expenses";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
@@ -53,11 +54,13 @@ function ExpensesPageContent() {
   const [fromDate, setFromDate] = useState(DEFAULT_RANGE.from);
   const [toDate, setToDate] = useState(DEFAULT_RANGE.to);
   const [categoryFilter, setCategoryFilter] = useState<number | "">("");
+  const [isPaidFilter, setIsPaidFilter] = useState<string>("");
   const [page, setPage] = useState(1);
 
   const { data: categories } = useExpenseCategories();
   const { data, isPending, isError, isPlaceholderData } = useExpensesList({
     category: categoryFilter,
+    isPaid: isPaidFilter,
     fromDate,
     toDate,
     page,
@@ -97,6 +100,7 @@ function ExpensesPageContent() {
           fromDate={fromDate}
           toDate={toDate}
           categoryFilter={categoryFilter}
+          isPaidFilter={isPaidFilter}
           page={page}
           onFromDateChange={(v) => {
             setFromDate(v);
@@ -108,6 +112,10 @@ function ExpensesPageContent() {
           }}
           onCategoryFilterChange={(v) => {
             setCategoryFilter(v);
+            setPage(1);
+          }}
+          onIsPaidFilterChange={(v) => {
+            setIsPaidFilter(v);
             setPage(1);
           }}
           onPageChange={setPage}
@@ -214,6 +222,7 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
   const [paidTo, setPaidTo] = useState("");
   const [amount, setAmount] = useState("");
   const [materialsPurchased, setMaterialsPurchased] = useState("");
+  const [isPaid, setIsPaid] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const selectedCategory = activeCategories.find((c) => c.id === categoryId);
@@ -233,6 +242,7 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
     setPaidTo("");
     setAmount("");
     setMaterialsPurchased("");
+    setIsPaid(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -269,6 +279,7 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
           showMaterialsPurchased && materialsPurchased.trim()
             ? materialsPurchased.trim()
             : null,
+        is_paid: isPaid,
       });
       resetForm();
       showToast("Expense recorded.");
@@ -373,6 +384,17 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
           />
         </Field>
 
+        <Field label="Payment Status">
+          <select
+            value={isPaid ? "true" : "false"}
+            onChange={(e) => setIsPaid(e.target.value === "true")}
+            className="input"
+          >
+            <option value="true">Paid</option>
+            <option value="false">Unpaid</option>
+          </select>
+        </Field>
+
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
@@ -395,10 +417,12 @@ function RecentExpensesFeed({
   fromDate,
   toDate,
   categoryFilter,
+  isPaidFilter,
   page,
   onFromDateChange,
   onToDateChange,
   onCategoryFilterChange,
+  onIsPaidFilterChange,
   onPageChange,
   data,
   isPending,
@@ -409,10 +433,12 @@ function RecentExpensesFeed({
   fromDate: string;
   toDate: string;
   categoryFilter: number | "";
+  isPaidFilter: string;
   page: number;
   onFromDateChange: (v: string) => void;
   onToDateChange: (v: string) => void;
   onCategoryFilterChange: (v: number | "") => void;
+  onIsPaidFilterChange: (v: string) => void;
   onPageChange: (updater: (p: number) => number) => void;
   data: ReturnType<typeof useExpensesList>["data"];
   isPending: boolean;
@@ -421,9 +447,10 @@ function RecentExpensesFeed({
 }) {
   const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState(false);
+  const updateExpense = useUpdateExpense();
 
   const totalPages = data ? Math.max(1, Math.ceil(data.count / PAGE_SIZE)) : 1;
-  const hasActiveFilters = categoryFilter !== "";
+  const hasActiveFilters = categoryFilter !== "" || isPaidFilter !== "";
 
   async function handleExportCsv() {
     setIsExporting(true);
@@ -437,11 +464,13 @@ function RecentExpensesFeed({
           "Paid To",
           "Amount",
           "Materials Purchased",
+          "Status",
         ],
       ];
 
       const allExpenses = await fetchAllExpenses({
         category: categoryFilter,
+        isPaid: isPaidFilter,
         fromDate,
         toDate,
       });
@@ -454,6 +483,7 @@ function RecentExpensesFeed({
           expense.paid_to,
           expense.amount,
           expense.materials_purchased ?? "",
+          expense.is_paid ? "Paid" : "Unpaid",
         ]);
       }
 
@@ -470,7 +500,10 @@ function RecentExpensesFeed({
     <div className="space-y-3">
       <FilterBar
         className="print:hidden"
-        onClear={hasActiveFilters ? () => onCategoryFilterChange("") : undefined}
+        onClear={hasActiveFilters ? () => {
+          onCategoryFilterChange("");
+          onIsPaidFilterChange("");
+        } : undefined}
       >
         <FilterField label="Date range">
           <div className="flex items-center gap-1.5">
@@ -506,6 +539,18 @@ function RecentExpensesFeed({
                 {cat.name}
               </option>
             ))}
+          </select>
+        </FilterField>
+
+        <FilterField label="Status">
+          <select
+            value={isPaidFilter}
+            onChange={(e) => onIsPaidFilterChange(e.target.value)}
+            className="input w-auto"
+          >
+            <option value="">All statuses</option>
+            <option value="true">Paid</option>
+            <option value="false">Unpaid</option>
           </select>
         </FilterField>
 
@@ -547,26 +592,27 @@ function RecentExpensesFeed({
                 <th className="px-4 py-3">Details</th>
                 <th className="px-4 py-3">Paid To</th>
                 <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3 text-right">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isPending && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                     Loading expenses...
                   </td>
                 </tr>
               )}
               {isError && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-red-600">
+                  <td colSpan={6} className="px-4 py-8 text-center text-red-600">
                     Failed to load expenses.
                   </td>
                 </tr>
               )}
               {!isPending && !isError && data?.results.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                     No expenses recorded for this range.
                   </td>
                 </tr>
@@ -606,6 +652,32 @@ function RecentExpensesFeed({
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-slate-900 print:text-black">
                     {formatCurrency(expense.amount)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await updateExpense.mutateAsync({
+                            expenseId: expense.id,
+                            is_paid: !expense.is_paid,
+                          });
+                          showToast(`Expense marked as ${!expense.is_paid ? "paid" : "unpaid"}.`);
+                        } catch (err) {
+                          showToast("Failed to update status", "error");
+                        }
+                      }}
+                      className={cn(
+                        "inline-flex rounded-full px-2 py-0.5 text-xs font-medium border print:hidden",
+                        expense.is_paid 
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" 
+                          : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                      )}
+                    >
+                      {expense.is_paid ? "Paid" : "Unpaid"}
+                    </button>
+                    <span className="hidden print:inline-block">
+                      {expense.is_paid ? "Paid" : "Unpaid"}
+                    </span>
                   </td>
                 </tr>
               ))}
