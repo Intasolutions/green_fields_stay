@@ -214,6 +214,15 @@ export function BookingDetailModal({
               )}
             </div>
 
+            {booking.remarks && (
+              <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="mb-1 text-xs font-medium text-amber-700/80">
+                  Remarks
+                </p>
+                <p>{booking.remarks}</p>
+              </div>
+            )}
+
             <div>
               <p className="mb-1.5 text-xs font-medium text-slate-500">Rooms</p>
               <ul className="space-y-1.5">

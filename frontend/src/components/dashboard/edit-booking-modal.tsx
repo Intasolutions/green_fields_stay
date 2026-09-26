@@ -28,6 +28,7 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
     booking.ota_reference_id ?? "",
   );
   const [profileTag, setProfileTag] = useState(booking.profile_tag ?? "");
+  const [remarks, setRemarks] = useState(booking.remarks ?? "");
   const [checkIn, setCheckIn] = useState(booking.check_in);
   const [checkOut, setCheckOut] = useState(booking.check_out);
   const [totalAmount, setTotalAmount] = useState(booking.total_amount);
@@ -48,8 +49,8 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
     e.preventDefault();
     setError(null);
 
-    if (!checkIn || !checkOut || checkOut <= checkIn) {
-      setError("Check-out date must be after check-in date.");
+    if (!checkIn || !checkOut || checkOut < checkIn) {
+      setError("Check-out date cannot be before check-in date.");
       return;
     }
     if (!totalAmount || parseFloat(totalAmount) <= 0) {
@@ -64,6 +65,7 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
           source,
           ota_reference_id: isOta ? otaReferenceId.trim() || null : null,
           profile_tag: profileTag.trim() || null,
+          remarks: remarks.trim() || null,
           check_in: checkIn,
           check_out: checkOut,
           total_amount: totalAmount,
@@ -150,6 +152,15 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
             onChange={(e) => setProfileTag(e.target.value)}
             placeholder="e.g. Family of 4, Couple"
             className="input"
+          />
+        </Field>
+
+        <Field label="Remarks">
+          <textarea
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="Any special requests or notes"
+            className="input min-h-[60px]"
           />
         </Field>
 

@@ -139,12 +139,20 @@ class GuestSerializer(serializers.ModelSerializer):
 
 def rooms_overlap_queryset(room_ids, check_in, check_out, exclude_booking_id=None):
     """Bookings (active only) that overlap the given date range for any of room_ids."""
-    qs = BookingRoom.objects.filter(
-        room_id__in=room_ids,
-        booking__status__in=ACTIVE_BOOKING_STATUSES,
-        booking__check_in__lt=check_out,
-        booking__check_out__gt=check_in,
-    )
+    if check_in == check_out:
+        qs = BookingRoom.objects.filter(
+            room_id__in=room_ids,
+            booking__status__in=ACTIVE_BOOKING_STATUSES,
+            booking__check_in__lte=check_out,
+            booking__check_out__gte=check_in,
+        )
+    else:
+        qs = BookingRoom.objects.filter(
+            room_id__in=room_ids,
+            booking__status__in=ACTIVE_BOOKING_STATUSES,
+            booking__check_in__lt=check_out,
+            booking__check_out__gt=check_in,
+        )
     if exclude_booking_id is not None:
         qs = qs.exclude(booking_id=exclude_booking_id)
     return qs
@@ -273,6 +281,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "ota_commission",
             "net_payout",
             "cancellation_reason",
+            "remarks",
             "created_at",
             "allocated_rooms",
             "payments",
@@ -315,6 +324,9 @@ class BookingCreateSerializer(serializers.Serializer):
     net_payout = serializers.DecimalField(
         max_digits=10, decimal_places=2, required=False
     )
+    remarks = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True
+    )
     initial_payment = InitialPaymentSerializer(required=False)
     companions = CompanionSerializer(many=True, required=False)
 
@@ -322,9 +334,9 @@ class BookingCreateSerializer(serializers.Serializer):
         check_in = attrs["check_in"]
         check_out = attrs["check_out"]
 
-        if check_out <= check_in:
+        if check_out < check_in:
             raise serializers.ValidationError(
-                {"check_out": "check_out must be after check_in."}
+                {"check_out": "check_out cannot be before check_in."}
             )
 
         room_ids = [room.id for room in attrs["room_ids"]]
@@ -455,15 +467,16 @@ class BookingEditSerializer(serializers.ModelSerializer):
             "total_amount",
             "ota_commission",
             "net_payout",
+            "remarks",
         ]
 
     def validate(self, attrs):
         check_in = attrs.get("check_in", self.instance.check_in)
         check_out = attrs.get("check_out", self.instance.check_out)
 
-        if check_out <= check_in:
+        if check_out < check_in:
             raise serializers.ValidationError(
-                {"check_out": "check_out must be after check_in."}
+                {"check_out": "check_out cannot be before check_in."}
             )
 
         if "check_in" in attrs or "check_out" in attrs:

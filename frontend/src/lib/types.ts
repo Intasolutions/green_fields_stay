@@ -139,6 +139,7 @@ export interface Booking {
   ota_commission: string;
   net_payout: string;
   cancellation_reason: string | null;
+  remarks: string | null;
   created_at: string;
   allocated_rooms: BookingRoomAllocation[];
   payments: Payment[];
@@ -170,6 +171,7 @@ export interface CreateBookingPayload {
   total_amount: string;
   ota_commission?: string;
   net_payout?: string;
+  remarks?: string | null;
   initial_payment?: {
     amount: string;
     payment_method: PaymentMethod;
@@ -186,6 +188,7 @@ export interface EditBookingPayload {
   total_amount?: string;
   ota_commission?: string;
   net_payout?: string;
+  remarks?: string | null;
 }
 
 export interface AddPaymentPayload {

@@ -66,6 +66,7 @@ export function NewBookingModal({
   const [otaReferenceId, setOtaReferenceId] = useState("");
   const [otaCommission, setOtaCommission] = useState("");
   const [profileTag, setProfileTag] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("NONE");
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -146,8 +147,8 @@ export function NewBookingModal({
         return;
       }
     }
-    if (!checkOut || !checkIn || checkOut <= checkIn) {
-      setFormError("Check-out date must be after check-in date.");
+    if (!checkOut || !checkIn || checkOut < checkIn) {
+      setFormError("Check-out date cannot be before check-in date.");
       return;
     }
     if (!totalAmount || parseFloat(totalAmount) <= 0) {
@@ -178,6 +179,7 @@ export function NewBookingModal({
         source,
         ota_reference_id: isOta ? otaReferenceId.trim() || null : null,
         profile_tag: profileTag.trim() || null,
+        remarks: remarks.trim() || null,
         companions: companionsPayload.length > 0 ? companionsPayload : undefined,
         check_in: checkIn,
         check_out: checkOut,
@@ -273,6 +275,17 @@ export function NewBookingModal({
               />
             </Field>
           )}
+
+          <div className="mt-3">
+            <Field label="Remarks">
+              <textarea
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="Any special requests or notes"
+                className="input min-h-[60px]"
+              />
+            </Field>
+          </div>
         </section>
 
         <section>
