@@ -10,6 +10,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.http import HttpResponse
+
+import openpyxl
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 
 from .models import (
     Booking,
@@ -226,7 +232,14 @@ class BookingViewSet(viewsets.ModelViewSet):
                 | models.Q(guest__phone__icontains=search)
             )
 
+        ordering = params.get("ordering")
+        if ordering in ["check_in", "-check_in", "created_at", "-created_at"]:
+            qs = qs.order_by(ordering)
+        else:
+            qs = qs.order_by("-check_in")
+
         return qs
+
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -234,6 +247,77 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking = serializer.save()
         output = BookingSerializer(booking)
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="export")
+    def export_bookings(self, request):
+        queryset = self.get_queryset()
+        export_format = request.query_params.get("format", "excel")
+        
+        if export_format == "excel":
+            response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            response["Content-Disposition"] = 'attachment; filename="bookings.xlsx"'
+            
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Bookings"
+            
+            headers = ["Guest Name", "Phone", "Room No.", "Check-in", "Check-out", "Source", "Total Amount", "Balance Due", "Status"]
+            ws.append(headers)
+            
+            for booking in queryset:
+                rooms = ", ".join([r.room.number for r in booking.allocated_rooms.all()])
+                ws.append([
+                    booking.guest.name,
+                    booking.guest.phone,
+                    rooms,
+                    str(booking.check_in),
+                    str(booking.check_out),
+                    booking.source,
+                    float(booking.total_amount),
+                    float(booking.balance_due),
+                    booking.status
+                ])
+                
+            wb.save(response)
+            return response
+            
+        elif export_format == "pdf":
+            response = HttpResponse(content_type="application/pdf")
+            response["Content-Disposition"] = 'attachment; filename="bookings.pdf"'
+            
+            doc = SimpleDocTemplate(response, pagesize=landscape(letter))
+            elements = []
+            
+            data = [["Guest Name", "Phone", "Room No.", "Check-in", "Check-out", "Status", "Total", "Balance"]]
+            for booking in queryset:
+                rooms = ", ".join([r.room.number for r in booking.allocated_rooms.all()])
+                data.append([
+                    booking.guest.name,
+                    booking.guest.phone,
+                    rooms,
+                    str(booking.check_in),
+                    str(booking.check_out),
+                    booking.status,
+                    str(booking.total_amount),
+                    str(booking.balance_due)
+                ])
+                
+            table = Table(data)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ]))
+            elements.append(table)
+            doc.build(elements)
+            return response
+            
+        else:
+            raise ValidationError("Unsupported format. Use 'excel' or 'pdf'.")
 
     @action(detail=True, methods=["patch"], url_path="check-in")
     def check_in(self, request, pk=None):

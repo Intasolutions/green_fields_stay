@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api-client";
 import type { Booking, BookingStatus } from "@/lib/types";
@@ -19,6 +19,7 @@ export interface BookingsListParams {
   checkInTo?: string;
   page?: number;
   pageSize?: number;
+  ordering?: string;
 }
 
 export function useBookingsList(params: BookingsListParams) {
@@ -29,13 +30,14 @@ export function useBookingsList(params: BookingsListParams) {
     checkInTo,
     page = 1,
     pageSize = 20,
+    ordering,
   } = params;
 
   return useQuery({
     queryKey: [
       "bookings",
       "list",
-      { search, status, checkInFrom, checkInTo, page, pageSize },
+      { search, status, checkInFrom, checkInTo, page, pageSize, ordering },
     ],
     queryFn: async () => {
       const response = await apiClient.get<PaginatedResponse<Booking>>(
@@ -48,12 +50,13 @@ export function useBookingsList(params: BookingsListParams) {
             check_in_to: checkInTo || undefined,
             page,
             page_size: pageSize,
+            ordering: ordering || undefined,
           },
         },
       );
       return response.data;
     },
-    placeholderData: (previousData) => previousData,
+    placeholderData: keepPreviousData,
   });
 }
 

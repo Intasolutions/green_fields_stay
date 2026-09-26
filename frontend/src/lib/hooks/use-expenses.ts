@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api-client";
 import type { PaginatedResponse } from "@/lib/hooks/use-bookings";
@@ -36,7 +36,7 @@ export function useExpensesList(params: ExpensesListParams) {
       );
       return response.data;
     },
-    placeholderData: (previousData) => previousData,
+    placeholderData: keepPreviousData,
   });
 }
 

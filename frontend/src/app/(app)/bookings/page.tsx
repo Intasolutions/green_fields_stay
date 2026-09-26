@@ -1,10 +1,12 @@
 "use client";
 
-import { AlertCircle, CalendarRange, Search, Wallet } from "lucide-react";
+import { AlertCircle, CalendarRange, Search, Wallet, FileSpreadsheet, FileText } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { apiClient } from "@/lib/api-client";
 import { BookingDetailModal } from "@/components/dashboard/booking-detail-modal";
 import { SourceLogo } from "@/components/source-logo";
+
 import { StatusBadge } from "@/components/status-badge";
 import { FilterBar, FilterField } from "@/components/ui/filter-bar";
 import { nightsBetween } from "@/lib/date-utils";
@@ -21,7 +23,7 @@ const STATUS_OPTIONS: { value: BookingStatus | ""; label: string }[] = [
   { value: "CANCELLED", label: "Cancelled" },
 ];
 
-const PAGE_SIZE = 20;
+
 
 function formatCurrency(value: string | number): string {
   const num = typeof value === "string" ? parseFloat(value) : value;
@@ -43,22 +45,25 @@ export default function BookingsPage() {
   const [checkInFrom, setCheckInFrom] = useState("");
   const [checkInTo, setCheckInTo] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [ordering, setOrdering] = useState("-check_in");
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(
     null,
   );
 
   const debouncedSearch = useDebouncedValue(searchInput);
 
-  const { data, isPending, isError, isPlaceholderData } = useBookingsList({
+  const { data, isPending, isError } = useBookingsList({
     search: debouncedSearch,
     status: statusFilter,
     checkInFrom,
     checkInTo,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
+    ordering,
   });
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.count / PAGE_SIZE)) : 1;
+  const totalPages = data ? Math.max(1, Math.ceil(data.count / pageSize)) : 1;
 
   const pageStats = useMemo(() => {
     if (!data) return { revenue: 0, balanceDue: 0 };
@@ -86,20 +91,66 @@ export default function BookingsPage() {
     setStatusFilter("");
     setCheckInFrom("");
     setCheckInTo("");
+    setOrdering("-check_in");
     setPage(1);
   }
 
+  const handleExport = async (format: "excel" | "pdf") => {
+    try {
+      const response = await apiClient.get("/bookings/export/", {
+        params: {
+          search: searchInput || undefined,
+          status: statusFilter || undefined,
+          check_in_from: checkInFrom || undefined,
+          check_in_to: checkInTo || undefined,
+          ordering: ordering || undefined,
+          format,
+        },
+        responseType: "blob",
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `bookings.${format === "excel" ? "xlsx" : "pdf"}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export failed:", error);
+    }
+  };
+
   const hasActiveFilters = Boolean(
-    searchInput || statusFilter || checkInFrom || checkInTo,
+    searchInput || statusFilter || checkInFrom || checkInTo || ordering !== "-check_in",
   );
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900">Bookings</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Search and review historical and active reservations.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900">Bookings</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Search and review historical and active reservations.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleExport("excel")}
+            className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            Excel
+          </button>
+          <button
+            onClick={() => handleExport("pdf")}
+            className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+          >
+            <FileText className="h-4 w-4" />
+            PDF
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -175,6 +226,22 @@ export default function BookingsPage() {
             />
           </div>
         </FilterField>
+
+        <FilterField label="Sort By">
+          <select
+            value={ordering}
+            onChange={(e) => {
+              setOrdering(e.target.value);
+              setPage(1);
+            }}
+            className="input w-auto"
+          >
+            <option value="-check_in">Check-in Date (Newest first)</option>
+            <option value="check_in">Check-in Date (Oldest first)</option>
+            <option value="-created_at">Booking Date (Newest first)</option>
+            <option value="created_at">Booking Date (Oldest first)</option>
+          </select>
+        </FilterField>
       </FilterBar>
 
       {/* ── Mobile: card list (hidden on md+) ── */}
@@ -217,7 +284,7 @@ export default function BookingsPage() {
               </div>
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
                 <div>
-                  <p className="text-xs text-slate-400">Room(s)</p>
+                  <p className="text-xs text-slate-400">Room No.</p>
                   <p className="font-medium text-slate-700">
                     {booking.allocated_rooms.map((r) => r.room_number).join(", ") || "—"}
                   </p>
@@ -250,9 +317,24 @@ export default function BookingsPage() {
         })}
         {data && data.count > 0 && (
           <div className="flex items-center justify-between py-2 text-sm text-slate-500">
-            <span>
-              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, data.count)} of {data.count}
-            </span>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <select 
+                value={pageSize} 
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-900"
+              >
+                <option value={10}>10 / page</option>
+                <option value={20}>20 / page</option>
+                <option value={50}>50 / page</option>
+                <option value={100}>100 / page</option>
+              </select>
+              <span>
+                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, data.count)} of {data.count}
+              </span>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -263,7 +345,7 @@ export default function BookingsPage() {
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || isPlaceholderData}
+                disabled={page >= totalPages}
                 className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
@@ -280,7 +362,7 @@ export default function BookingsPage() {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-3">Guest</th>
-                <th className="px-4 py-3">Rooms</th>
+                <th className="px-4 py-3">Room No.</th>
                 <th className="px-4 py-3">Stay</th>
                 <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3 text-right">Total</th>
@@ -373,11 +455,29 @@ export default function BookingsPage() {
         </div>
         {data && data.count > 0 && (
           <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
-            <span>
-              Showing {(page - 1) * PAGE_SIZE + 1}
-              &ndash;
-              {Math.min(page * PAGE_SIZE, data.count)} of {data.count}
-            </span>
+            <div className="flex items-center gap-4">
+              <span>
+                Showing {(page - 1) * pageSize + 1}
+                &ndash;
+                {Math.min(page * pageSize, data.count)} of {data.count}
+              </span>
+              <div className="flex items-center gap-2">
+                <span>Rows:</span>
+                <select 
+                  value={pageSize} 
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-900"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -388,7 +488,7 @@ export default function BookingsPage() {
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || isPlaceholderData}
+                disabled={page >= totalPages}
                 className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next

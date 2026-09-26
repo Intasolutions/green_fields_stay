@@ -32,7 +32,6 @@ import { useToast } from "@/components/ui/toast";
 import { RequireRole } from "@/components/require-role";
 import { FilterBar, FilterField } from "@/components/ui/filter-bar";
 
-const PAGE_SIZE = 15;
 const DEFAULT_RANGE = getCurrentMonthRange();
 
 function formatCurrency(value: string | number): string {
@@ -56,6 +55,7 @@ function ExpensesPageContent() {
   const [categoryFilter, setCategoryFilter] = useState<number | "">("");
   const [isPaidFilter, setIsPaidFilter] = useState<string>("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   const { data: categories } = useExpenseCategories();
   const { data, isPending, isError, isPlaceholderData } = useExpensesList({
@@ -64,7 +64,7 @@ function ExpensesPageContent() {
     fromDate,
     toDate,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
   });
 
   const isAdmin = currentUser?.role === "ADMIN";
@@ -102,6 +102,7 @@ function ExpensesPageContent() {
           categoryFilter={categoryFilter}
           isPaidFilter={isPaidFilter}
           page={page}
+          pageSize={pageSize}
           onFromDateChange={(v) => {
             setFromDate(v);
             setPage(1);
@@ -119,6 +120,10 @@ function ExpensesPageContent() {
             setPage(1);
           }}
           onPageChange={setPage}
+          onPageSizeChange={(v) => {
+            setPageSize(v);
+            setPage(1);
+          }}
           data={data}
           isPending={isPending}
           isError={isError}
@@ -419,6 +424,7 @@ function RecentExpensesFeed({
   categoryFilter,
   isPaidFilter,
   page,
+  pageSize,
   onFromDateChange,
   onToDateChange,
   onCategoryFilterChange,
@@ -440,6 +446,7 @@ function RecentExpensesFeed({
   onCategoryFilterChange: (v: number | "") => void;
   onIsPaidFilterChange: (v: string) => void;
   onPageChange: (updater: (p: number) => number) => void;
+  onPageSizeChange: (v: number) => void;
   data: ReturnType<typeof useExpensesList>["data"];
   isPending: boolean;
   isError: boolean;
@@ -449,7 +456,7 @@ function RecentExpensesFeed({
   const [isExporting, setIsExporting] = useState(false);
   const updateExpense = useUpdateExpense();
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.count / PAGE_SIZE)) : 1;
+  const totalPages = data ? Math.max(1, Math.ceil(data.count / pageSize)) : 1;
   const hasActiveFilters = categoryFilter !== "" || isPaidFilter !== "";
 
   async function handleExportCsv() {
@@ -687,11 +694,27 @@ function RecentExpensesFeed({
 
         {data && data.count > 0 && (
           <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm text-slate-500 print:hidden">
-            <span>
-              Showing {(page - 1) * PAGE_SIZE + 1}
-              &ndash;
-              {Math.min(page * PAGE_SIZE, data.count)} of {data.count}
-            </span>
+            <div className="flex items-center gap-4">
+              <span>
+                Showing {(page - 1) * pageSize + 1}
+                &ndash;
+                {Math.min(page * pageSize, data.count)} of {data.count}
+              </span>
+              <div className="flex items-center gap-2">
+                <span>Rows:</span>
+                <select 
+                  value={pageSize} 
+                  onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-900"
+                >
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => onPageChange((p) => Math.max(1, p - 1))}
@@ -702,7 +725,7 @@ function RecentExpensesFeed({
               </button>
               <button
                 onClick={() => onPageChange((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || isPlaceholderData}
+                disabled={page >= totalPages}
                 className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
