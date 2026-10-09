@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { AlertCircle, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useRoomAvailability } from "@/lib/hooks/use-room-availability";
@@ -18,7 +18,7 @@ import { cn } from "@/lib/cn";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SourceLogo } from "@/components/source-logo";
 
-const VISIBLE_DAYS = 14;
+const VISIBLE_DAYS = 30;
 const ROOM_COL_WIDTH = 96;
 const DAY_COL_WIDTH = 68;
 const ROW_HEIGHT = 52;
@@ -29,7 +29,7 @@ interface RoomMatrixProps {
 }
 
 export function RoomMatrix({ onNewBooking, onSelectBooking }: RoomMatrixProps) {
-  const [rangeStart, setRangeStart] = useState(() => startOfDay(new Date()));
+  const [rangeStart, setRangeStart] = useState(() => addDays(startOfDay(new Date()), -7));
 
   const days = useMemo(
     () => Array.from({ length: VISIBLE_DAYS }, (_, i) => addDays(rangeStart, i)),
@@ -47,16 +47,8 @@ export function RoomMatrix({ onNewBooking, onSelectBooking }: RoomMatrixProps) {
 
   const todayOffset = days.findIndex((d) => isSameDate(d, new Date()));
 
-  function goToPreviousWeek() {
-    setRangeStart((prev) => addDays(prev, -7));
-  }
-
-  function goToNextWeek() {
-    setRangeStart((prev) => addDays(prev, 7));
-  }
-
   function goToToday() {
-    setRangeStart(startOfDay(new Date()));
+    setRangeStart(addDays(startOfDay(new Date()), -7));
   }
 
   function handleDatePickerChange(value: string) {
@@ -70,23 +62,6 @@ export function RoomMatrix({ onNewBooking, onSelectBooking }: RoomMatrixProps) {
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-md border border-slate-200">
-            <button
-              onClick={goToPreviousWeek}
-              className="flex h-8 w-8 items-center justify-center text-slate-600 hover:bg-slate-50"
-              aria-label="Previous week"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <div className="h-5 w-px bg-slate-200" />
-            <button
-              onClick={goToNextWeek}
-              className="flex h-8 w-8 items-center justify-center text-slate-600 hover:bg-slate-50"
-              aria-label="Next week"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
           <button
             onClick={goToToday}
             className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
@@ -272,14 +247,15 @@ function RoomRow({
       const clippedStart = Math.max(startOffset, 0);
       const clippedEnd = Math.min(endOffset, numDays);
 
-      if (clippedEnd <= clippedStart) return null;
+      if (endOffset < 0 || startOffset >= numDays) return null;
 
       return {
         booking,
         startCol: clippedStart,
         span: clippedEnd - clippedStart,
         continuesLeft: startOffset < 0,
-        continuesRight: endOffset > numDays,
+        continuesRight: endOffset >= numDays,
+        isSameDay: startOffset === endOffset,
       };
     })
     .filter((s): s is NonNullable<typeof s> => s !== null);
@@ -338,6 +314,23 @@ function RoomRow({
         {/* Floating booking bars */}
         {segments.map((seg) => {
           const balanceDue = parseFloat(seg.booking.balance_due);
+          
+          let left = seg.startCol * DAY_COL_WIDTH;
+          let width = seg.span * DAY_COL_WIDTH;
+
+          if (seg.isSameDay) {
+            left += DAY_COL_WIDTH * 0.1;
+            width = DAY_COL_WIDTH * 0.8;
+          } else {
+            if (!seg.continuesLeft) {
+              left += DAY_COL_WIDTH / 2;
+              width -= DAY_COL_WIDTH / 2;
+            }
+            if (!seg.continuesRight) {
+              width += DAY_COL_WIDTH / 2;
+            }
+          }
+
           return (
             <button
               key={seg.booking.booking_id}
@@ -351,8 +344,8 @@ function RoomRow({
                 seg.continuesRight ? "rounded-r-none" : "rounded-r-md",
               )}
               style={{
-                left: seg.startCol * DAY_COL_WIDTH + 1,
-                width: seg.span * DAY_COL_WIDTH - 2,
+                left: left + 1,
+                width: width - 2,
               }}
               title={`${seg.booking.guest_name} · ${seg.booking.status}${balanceDue > 0 ? ` · Balance due Rs. ${seg.booking.balance_due}` : ""}`}
             >

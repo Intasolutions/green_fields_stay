@@ -430,6 +430,7 @@ function RecentExpensesFeed({
   onCategoryFilterChange,
   onIsPaidFilterChange,
   onPageChange,
+  onPageSizeChange,
   data,
   isPending,
   isError,
@@ -441,6 +442,7 @@ function RecentExpensesFeed({
   categoryFilter: number | "";
   isPaidFilter: string;
   page: number;
+  pageSize: number;
   onFromDateChange: (v: string) => void;
   onToDateChange: (v: string) => void;
   onCategoryFilterChange: (v: number | "") => void;

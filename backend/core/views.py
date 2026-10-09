@@ -107,9 +107,9 @@ class RoomAvailabilityView(APIView):
         rooms = Room.objects.filter(is_active=True)
         overlapping_allocations = BookingRoom.objects.filter(
             room__in=rooms,
-            booking__status__in=ACTIVE_BOOKING_STATUSES,
+            booking__status__in=NON_CANCELLED_STATUSES,
             booking__check_in__lt=end_date,
-            booking__check_out__gt=start_date,
+            booking__check_out__gte=start_date,
         ).select_related("booking", "room").prefetch_related("booking__payments")
 
         bookings_by_room = {}
@@ -127,13 +127,27 @@ class RoomAvailabilityView(APIView):
                 }
             )
 
+        now_date = timezone.localdate()
         data = []
         for room in rooms:
             room_bookings = bookings_by_room.get(room.id, [])
+            
+            # Check if there's an active booking intersecting today
+            is_available = True
+            for b in room_bookings:
+                if b["status"] in ACTIVE_BOOKING_STATUSES:
+                    # Treat same-day bookings specially or just standard check (check_in <= now_date < check_out)
+                    if b["check_in"] == b["check_out"] and b["check_in"] == now_date:
+                        is_available = False
+                        break
+                    elif b["check_in"] <= now_date < b["check_out"]:
+                        is_available = False
+                        break
+
             data.append(
                 {
                     "room": RoomSerializer(room).data,
-                    "is_available": len(room_bookings) == 0,
+                    "is_available": is_available,
                     "bookings": room_bookings,
                 }
             )
