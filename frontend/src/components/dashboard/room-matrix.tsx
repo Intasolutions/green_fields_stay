@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useRoomAvailability } from "@/lib/hooks/use-room-availability";
 import {
   addDays,
-  formatShortDate,
+  formatDate,
   isSameDate,
   parseDateOnly,
   startOfDay,
@@ -15,6 +15,7 @@ import {
 import { SOURCE_STYLES } from "@/lib/source-colors";
 import type { RoomAvailabilityBooking } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { DateInput } from "@/components/ui/date-input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SourceLogo } from "@/components/source-logo";
 
@@ -68,15 +69,15 @@ export function RoomMatrix({ onNewBooking, onSelectBooking }: RoomMatrixProps) {
           >
             Today
           </button>
-          <input
-            type="date"
+          <DateInput
             value={toDateOnly(rangeStart)}
-            onChange={(e) => handleDatePickerChange(e.target.value)}
-            className="rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-600"
+            onChange={handleDatePickerChange}
+            aria-label="Jump to date"
+            className="w-36"
           />
           <span className="text-sm font-medium text-slate-700">
-            {formatShortDate(rangeStart)} &ndash;{" "}
-            {formatShortDate(addDays(rangeStart, VISIBLE_DAYS - 1))}
+            {formatDate(rangeStart)} &ndash;{" "}
+            {formatDate(addDays(rangeStart, VISIBLE_DAYS - 1))}
           </span>
         </div>
 
@@ -296,7 +297,7 @@ function RoomRow({
             return (
               <Tooltip
                 key={toDateOnly(day)}
-                label={`Book Room ${roomNumber} · ${formatShortDate(day)}`}
+                label={`Book Room ${roomNumber} · ${formatDate(day)}`}
                 className="items-stretch"
                 style={{ width: DAY_COL_WIDTH }}
               >

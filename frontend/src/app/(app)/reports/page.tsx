@@ -6,10 +6,12 @@ import { useState } from "react";
 import { RequireRole } from "@/components/require-role";
 import { SourceLogo } from "@/components/source-logo";
 import { useToast } from "@/components/ui/toast";
+import { DateInput } from "@/components/ui/date-input";
 import { FilterBar, FilterField } from "@/components/ui/filter-bar";
 import {
   addDays,
   endOfMonth,
+  formatDate,
   getCurrentMonthRange,
   startOfMonth,
   startOfDay,
@@ -68,7 +70,7 @@ function buildReportCsvRows(
   categories: ExpenseCategory[],
 ): (string | number)[][] {
   const rows: (string | number)[][] = [
-    ["Report Period", `${financial.from} to ${financial.to}`],
+    ["Report Period", `${formatDate(financial.from)} to ${formatDate(financial.to)}`],
     [],
     ["Financial Summary", ""],
     ["Total Revenue", financial.total_booking_revenue],
@@ -157,7 +159,7 @@ function ReportsPageContent() {
       </div>
 
       <p className="hidden text-sm text-black print:block">
-        Report period: {from} to {to}
+        Report period: {formatDate(from)} to {formatDate(to)}
       </p>
 
       <FilterBar className="print:hidden">
@@ -173,18 +175,18 @@ function ReportsPageContent() {
 
         <FilterField label="Date range">
           <div className="flex items-center gap-1.5">
-            <input
-              type="date"
+            <DateInput
               value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="input w-auto"
+              onChange={setFrom}
+              aria-label="Report from"
+              className="w-36"
             />
             <span className="text-xs text-slate-400">to</span>
-            <input
-              type="date"
+            <DateInput
               value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="input w-auto"
+              onChange={setTo}
+              aria-label="Report to"
+              className="w-36"
             />
           </div>
         </FilterField>

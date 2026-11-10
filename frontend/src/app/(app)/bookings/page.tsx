@@ -5,14 +5,22 @@ import { useMemo, useState } from "react";
 
 import { apiClient } from "@/lib/api-client";
 import { BookingDetailModal } from "@/components/dashboard/booking-detail-modal";
+import { EditBookingModal } from "@/components/dashboard/edit-booking-modal";
 import { SourceLogo } from "@/components/source-logo";
 
 import { StatusBadge } from "@/components/status-badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DateInput } from "@/components/ui/date-input";
 import { FilterBar, FilterField } from "@/components/ui/filter-bar";
-import { nightsBetween } from "@/lib/date-utils";
+import { RowActions } from "@/components/ui/row-actions";
+import { useToast } from "@/components/ui/toast";
+import { getApiErrorMessage } from "@/lib/api-error";
+import { formatDate, nightsBetween } from "@/lib/date-utils";
+import { useDeleteBooking } from "@/lib/hooks/use-booking-mutations";
 import { useBookingsList } from "@/lib/hooks/use-bookings";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
-import type { BookingStatus } from "@/lib/types";
+import type { Booking, BookingStatus } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 const STATUS_OPTIONS: { value: BookingStatus | ""; label: string }[] = [
@@ -50,6 +58,14 @@ export default function BookingsPage() {
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(
     null,
   );
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [deletingBooking, setDeletingBooking] = useState<Booking | null>(null);
+
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "ADMIN";
+  const columnCount = isAdmin ? 8 : 7;
+  const deleteBooking = useDeleteBooking();
+  const { showToast } = useToast();
 
   const debouncedSearch = useDebouncedValue(searchInput);
 
@@ -84,6 +100,18 @@ export default function BookingsPage() {
   function handleStatusChange(value: BookingStatus | "") {
     setStatusFilter(value);
     setPage(1);
+  }
+
+  async function handleConfirmDelete() {
+    if (!deletingBooking) return;
+    try {
+      await deleteBooking.mutateAsync(deletingBooking.id);
+      showToast("Booking deleted.");
+    } catch (err) {
+      showToast(getApiErrorMessage(err, "Could not delete this booking."), "error");
+    } finally {
+      setDeletingBooking(null);
+    }
   }
 
   function handleClearFilters() {
@@ -205,24 +233,24 @@ export default function BookingsPage() {
 
         <FilterField label="Check-in range">
           <div className="flex items-center gap-1.5">
-            <input
-              type="date"
+            <DateInput
               value={checkInFrom}
-              onChange={(e) => {
-                setCheckInFrom(e.target.value);
+              onChange={(value) => {
+                setCheckInFrom(value);
                 setPage(1);
               }}
-              className="input w-auto"
+              aria-label="Check-in from"
+              className="w-36"
             />
             <span className="text-xs text-slate-400">to</span>
-            <input
-              type="date"
+            <DateInput
               value={checkInTo}
-              onChange={(e) => {
-                setCheckInTo(e.target.value);
+              onChange={(value) => {
+                setCheckInTo(value);
                 setPage(1);
               }}
-              className="input w-auto"
+              aria-label="Check-in to"
+              className="w-36"
             />
           </div>
         </FilterField>
@@ -280,7 +308,16 @@ export default function BookingsPage() {
                     <div className="text-xs text-slate-400">{booking.guest.phone}</div>
                   </div>
                 </div>
-                <StatusBadge status={booking.status} />
+                <div className="flex items-center gap-1">
+                  <StatusBadge status={booking.status} />
+                  {isAdmin && (
+                    <RowActions
+                      itemLabel="booking"
+                      onEdit={() => setEditingBooking(booking)}
+                      onDelete={() => setDeletingBooking(booking)}
+                    />
+                  )}
+                </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
                 <div>
@@ -296,7 +333,7 @@ export default function BookingsPage() {
                 <div>
                   <p className="text-xs text-slate-400">Stay</p>
                   <p className="font-medium text-slate-700">
-                    {booking.check_in} → {booking.check_out}
+                    {formatDate(booking.check_in)} → {formatDate(booking.check_out)}
                   </p>
                   <p className="text-xs text-slate-400">
                     {nights} night{nights === 1 ? "" : "s"}
@@ -368,26 +405,27 @@ export default function BookingsPage() {
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3 text-right">Balance</th>
                 <th className="px-4 py-3">Status</th>
+                {isAdmin && <th className="px-4 py-3 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isPending && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={columnCount} className="px-4 py-8 text-center text-slate-500">
                     Loading bookings...
                   </td>
                 </tr>
               )}
               {isError && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-red-600">
+                  <td colSpan={columnCount} className="px-4 py-8 text-center text-red-600">
                     Failed to load bookings. Please try again.
                   </td>
                 </tr>
               )}
               {!isPending && !isError && data?.results.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={columnCount} className="px-4 py-8 text-center text-slate-400">
                     No bookings match your filters.
                   </td>
                 </tr>
@@ -423,7 +461,7 @@ export default function BookingsPage() {
                     </td>
                     <td className="px-4 py-3 text-slate-600">
                       <div>
-                        {booking.check_in} &rarr; {booking.check_out}
+                        {formatDate(booking.check_in)} &rarr; {formatDate(booking.check_out)}
                       </div>
                       <div className="text-xs text-slate-400">
                         {nights} night{nights === 1 ? "" : "s"}
@@ -447,6 +485,15 @@ export default function BookingsPage() {
                     <td className="px-4 py-3">
                       <StatusBadge status={booking.status} />
                     </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3 text-right">
+                        <RowActions
+                          itemLabel="booking"
+                          onEdit={() => setEditingBooking(booking)}
+                          onDelete={() => setDeletingBooking(booking)}
+                        />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -502,6 +549,25 @@ export default function BookingsPage() {
         <BookingDetailModal
           bookingId={selectedBookingId}
           onClose={() => setSelectedBookingId(null)}
+        />
+      )}
+
+      {editingBooking && (
+        <EditBookingModal
+          booking={editingBooking}
+          onClose={() => setEditingBooking(null)}
+        />
+      )}
+
+      {deletingBooking && (
+        <ConfirmDialog
+          title="Delete this booking permanently?"
+          description={`${deletingBooking.guest.name}, ${formatDate(deletingBooking.check_in)} to ${formatDate(deletingBooking.check_out)}. The booking and all its payments will be removed and will no longer count in reports. This cannot be undone. To keep a record, cancel the booking instead.`}
+          confirmLabel="Delete Booking"
+          tone="danger"
+          isConfirming={deleteBooking.isPending}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeletingBooking(null)}
         />
       )}
     </div>

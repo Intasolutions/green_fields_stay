@@ -1,6 +1,7 @@
 import { SlidersHorizontal, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { DateInput } from "@/components/ui/date-input";
 
 /**
  * Consistent filter-row shell used across Bookings/Expenses/Reports: a
@@ -72,18 +73,18 @@ export function DateRangeField({
   return (
     <FilterField label={label}>
       <div className="flex items-center gap-1.5">
-        <input
-          type="date"
+        <DateInput
           value={from}
-          onChange={(e) => onFromChange(e.target.value)}
-          className="input w-auto"
+          onChange={onFromChange}
+          aria-label={`${label} from`}
+          className="w-36"
         />
         <span className="text-xs text-slate-400">to</span>
-        <input
-          type="date"
+        <DateInput
           value={to}
-          onChange={(e) => onToChange(e.target.value)}
-          className="input w-auto"
+          onChange={onToChange}
+          aria-label={`${label} to`}
+          className="w-36"
         />
       </div>
     </FilterField>

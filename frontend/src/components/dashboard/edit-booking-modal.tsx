@@ -6,6 +6,7 @@ import { useEditBooking } from "@/lib/hooks/use-booking-mutations";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { BOOKING_SOURCES, OTA_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
 import type { Booking, BookingSource } from "@/lib/types";
+import { DateInput } from "@/components/ui/date-input";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 
@@ -90,22 +91,10 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Check-in" required>
-            <input
-              type="date"
-              value={checkIn}
-              onChange={(e) => setCheckIn(e.target.value)}
-              className="input"
-              required
-            />
+            <DateInput value={checkIn} onChange={setCheckIn} required />
           </Field>
           <Field label="Check-out" required>
-            <input
-              type="date"
-              value={checkOut}
-              onChange={(e) => setCheckOut(e.target.value)}
-              className="input"
-              required
-            />
+            <DateInput value={checkOut} onChange={setCheckOut} required />
           </Field>
         </div>
 

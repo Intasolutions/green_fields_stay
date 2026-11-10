@@ -28,8 +28,35 @@ export function getDateRange(start: Date, numDays: number): Date[] {
   return Array.from({ length: numDays }, (_, i) => addDays(start, i));
 }
 
-export function formatShortDate(date: Date): string {
-  return date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+/** dd/mm/yyyy for a YYYY-MM-DD string, an ISO datetime string, or a Date. */
+export function formatDate(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const date =
+    typeof value !== "string"
+      ? value
+      : /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? parseDateOnly(value)
+        : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
+/** Parses dd/mm/yyyy into YYYY-MM-DD, or null if it isn't a real calendar date. */
+export function parseDisplayDate(text: string): string | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text.trim());
+  if (!match) return null;
+  const [day, month, year] = match.slice(1).map(Number);
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return toDateOnly(date);
 }
 
 export function formatMonthYear(date: Date): string {

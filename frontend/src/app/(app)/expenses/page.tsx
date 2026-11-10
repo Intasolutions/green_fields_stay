@@ -13,24 +13,29 @@ import {
 import { useMemo, useState } from "react";
 
 import { getApiErrorMessage } from "@/lib/api-error";
-import { getCurrentMonthRange, toDateOnly } from "@/lib/date-utils";
+import { formatDate, getCurrentMonthRange, toDateOnly } from "@/lib/date-utils";
 import { downloadCsv } from "@/lib/csv-export";
 import { expenseCategoryDotColor } from "@/lib/expense-category-colors";
 import {
   fetchAllExpenses,
   useCreateExpense,
   useCreateExpenseCategory,
+  useDeleteExpense,
   useExpenseCategories,
   useExpensesList,
   useUpdateExpense,
   useUpdateExpenseCategory,
 } from "@/lib/hooks/use-expenses";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import type { ExpenseCategory } from "@/lib/types";
+import type { CreateExpensePayload, Expense, ExpenseCategory } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/toast";
 import { RequireRole } from "@/components/require-role";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DateInput } from "@/components/ui/date-input";
 import { FilterBar, FilterField } from "@/components/ui/filter-bar";
+import { Modal } from "@/components/ui/modal";
+import { RowActions } from "@/components/ui/row-actions";
 
 const DEFAULT_RANGE = getCurrentMonthRange();
 
@@ -219,15 +224,92 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
   const createExpense = useCreateExpense();
   const { showToast } = useToast();
 
-  const activeCategories = categories.filter((c) => c.is_active);
-  const [date, setDate] = useState(toDateOnly(new Date()));
-  const [categoryId, setCategoryId] = useState<number | "">("");
-  const [jobDetails, setJobDetails] = useState("");
-  const [workerCount, setWorkerCount] = useState("");
-  const [paidTo, setPaidTo] = useState("");
-  const [amount, setAmount] = useState("");
-  const [materialsPurchased, setMaterialsPurchased] = useState("");
-  const [isPaid, setIsPaid] = useState(true);
+  return (
+    <div className="h-fit rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 text-sm font-semibold text-slate-700">
+        Record New Expense
+      </h2>
+      <ExpenseForm
+        categories={categories}
+        submitLabel="Record Expense"
+        isSubmitting={createExpense.isPending}
+        onSubmit={async (payload) => {
+          await createExpense.mutateAsync(payload);
+          showToast("Expense recorded.");
+        }}
+      />
+    </div>
+  );
+}
+
+function EditExpenseModal({
+  expense,
+  categories,
+  onClose,
+}: {
+  expense: Expense;
+  categories: ExpenseCategory[];
+  onClose: () => void;
+}) {
+  const updateExpense = useUpdateExpense();
+  const { showToast } = useToast();
+
+  return (
+    <Modal title="Edit Expense" onClose={onClose}>
+      <ExpenseForm
+        categories={categories}
+        expense={expense}
+        submitLabel="Save Changes"
+        isSubmitting={updateExpense.isPending}
+        onCancel={onClose}
+        onSubmit={async (payload) => {
+          await updateExpense.mutateAsync({ expenseId: expense.id, ...payload });
+          showToast("Expense updated.");
+          onClose();
+        }}
+      />
+    </Modal>
+  );
+}
+
+/**
+ * Shared by "Record New Expense" and the edit modal. When `expense` is set
+ * the fields start from it; otherwise the form resets after each save.
+ * `onSubmit` throws on API errors, which are shown inline.
+ */
+function ExpenseForm({
+  categories,
+  expense,
+  submitLabel,
+  isSubmitting,
+  onSubmit,
+  onCancel,
+}: {
+  categories: ExpenseCategory[];
+  expense?: Expense;
+  submitLabel: string;
+  isSubmitting: boolean;
+  onSubmit: (payload: CreateExpensePayload) => Promise<void>;
+  onCancel?: () => void;
+}) {
+  // An expense filed under a since-deactivated category keeps it selectable.
+  const activeCategories = categories.filter(
+    (c) => c.is_active || c.id === expense?.category,
+  );
+  const [date, setDate] = useState(expense?.date ?? toDateOnly(new Date()));
+  const [categoryId, setCategoryId] = useState<number | "">(
+    expense?.category ?? "",
+  );
+  const [jobDetails, setJobDetails] = useState(expense?.job_details ?? "");
+  const [workerCount, setWorkerCount] = useState(
+    expense?.worker_count != null ? String(expense.worker_count) : "",
+  );
+  const [paidTo, setPaidTo] = useState(expense?.paid_to ?? "");
+  const [amount, setAmount] = useState(expense?.amount ?? "");
+  const [materialsPurchased, setMaterialsPurchased] = useState(
+    expense?.materials_purchased ?? "",
+  );
+  const [isPaid, setIsPaid] = useState(expense?.is_paid ?? true);
   const [error, setError] = useState<string | null>(null);
 
   const selectedCategory = activeCategories.find((c) => c.id === categoryId);
@@ -271,8 +353,13 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
       return;
     }
 
+    if (!date) {
+      setError("Enter a date.");
+      return;
+    }
+
     try {
-      await createExpense.mutateAsync({
+      await onSubmit({
         date,
         category: categoryId,
         job_details: jobDetails.trim(),
@@ -286,134 +373,145 @@ function NewExpenseForm({ categories }: { categories: ExpenseCategory[] }) {
             : null,
         is_paid: isPaid,
       });
-      resetForm();
-      showToast("Expense recorded.");
+      if (!expense) resetForm();
     } catch (err) {
-      setError(getApiErrorMessage(err, "Could not record expense."));
+      setError(
+        getApiErrorMessage(
+          err,
+          expense ? "Could not update expense." : "Could not record expense.",
+        ),
+      );
     }
   }
 
   return (
-    <div className="h-fit rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-semibold text-slate-700">
-        Record New Expense
-      </h2>
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <Field label="Date" required>
+        <DateInput value={date} onChange={setDate} required />
+      </Field>
 
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <Field label="Date" required>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="input"
-            required
-          />
-        </Field>
-
-        <Field label="Category" required>
-          <select
-            value={categoryId}
-            onChange={(e) => handleCategoryChange(Number(e.target.value))}
-            className="input"
-            required
-          >
-            <option value="" disabled>
-              Select a category
+      <Field label="Category" required>
+        <select
+          value={categoryId}
+          onChange={(e) => handleCategoryChange(Number(e.target.value))}
+          className="input"
+          required
+        >
+          <option value="" disabled>
+            Select a category
+          </option>
+          {activeCategories.map((cat) => (
+            <option key={cat.id} value={cat.id}>
+              {cat.name}
             </option>
-            {activeCategories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-          {activeCategories.length === 0 && (
-            <p className="mt-1 text-xs text-amber-600">
-              No categories yet — ask an Admin to add one.
-            </p>
-          )}
-        </Field>
-
-        <Field label="Job Details" required>
-          <input
-            value={jobDetails}
-            onChange={(e) => setJobDetails(e.target.value)}
-            placeholder="e.g. Roof repair, electricity bill"
-            className="input"
-            required
-          />
-        </Field>
-
-        {showWorkerCount && (
-          <Field label="Worker Count">
-            <input
-              type="number"
-              min="1"
-              value={workerCount}
-              onChange={(e) => setWorkerCount(e.target.value)}
-              placeholder="e.g. 3"
-              className="input"
-            />
-          </Field>
-        )}
-
-        {showMaterialsPurchased && (
-          <Field label="Materials Purchased">
-            <input
-              value={materialsPurchased}
-              onChange={(e) => setMaterialsPurchased(e.target.value)}
-              placeholder="e.g. Roof sheets, railing"
-              className="input"
-            />
-          </Field>
-        )}
-
-        <Field label="Paid To" required>
-          <input
-            value={paidTo}
-            onChange={(e) => setPaidTo(e.target.value)}
-            placeholder="e.g. Vendor name"
-            className="input"
-            required
-          />
-        </Field>
-
-        <Field label="Amount (Rs.)" required>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="input"
-            required
-          />
-        </Field>
-
-        <Field label="Payment Status">
-          <select
-            value={isPaid ? "true" : "false"}
-            onChange={(e) => setIsPaid(e.target.value === "true")}
-            className="input"
-          >
-            <option value="true">Paid</option>
-            <option value="false">Unpaid</option>
-          </select>
-        </Field>
-
-        {error && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
+          ))}
+        </select>
+        {activeCategories.length === 0 && (
+          <p className="mt-1 text-xs text-amber-600">
+            No categories yet — ask an Admin to add one.
           </p>
         )}
+      </Field>
+
+      <Field label="Job Details" required>
+        <input
+          value={jobDetails}
+          onChange={(e) => setJobDetails(e.target.value)}
+          placeholder="e.g. Roof repair, electricity bill"
+          className="input"
+          required
+        />
+      </Field>
+
+      {showWorkerCount && (
+        <Field label="Worker Count">
+          <input
+            type="number"
+            min="1"
+            value={workerCount}
+            onChange={(e) => setWorkerCount(e.target.value)}
+            placeholder="e.g. 3"
+            className="input"
+          />
+        </Field>
+      )}
+
+      {showMaterialsPurchased && (
+        <Field label="Materials Purchased">
+          <input
+            value={materialsPurchased}
+            onChange={(e) => setMaterialsPurchased(e.target.value)}
+            placeholder="e.g. Roof sheets, railing"
+            className="input"
+          />
+        </Field>
+      )}
+
+      <Field label="Paid To" required>
+        <input
+          value={paidTo}
+          onChange={(e) => setPaidTo(e.target.value)}
+          placeholder="e.g. Vendor name"
+          className="input"
+          required
+        />
+      </Field>
+
+      <Field label="Amount (Rs.)" required>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className="input"
+          required
+        />
+      </Field>
+
+      <Field label="Payment Status">
+        <select
+          value={isPaid ? "true" : "false"}
+          onChange={(e) => setIsPaid(e.target.value === "true")}
+          className="input"
+        >
+          <option value="true">Paid</option>
+          <option value="false">Unpaid</option>
+        </select>
+      </Field>
+
+      {error && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+      {onCancel ? (
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+          >
+            {isSubmitting ? "Saving..." : submitLabel}
+          </button>
+        </div>
+      ) : (
         <button
           type="submit"
-          disabled={createExpense.isPending}
+          disabled={isSubmitting}
           className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          {createExpense.isPending ? "Saving..." : "Record Expense"}
+          {isSubmitting ? "Saving..." : submitLabel}
         </button>
-      </form>
-    </div>
+      )}
+    </form>
   );
 }
 
@@ -456,7 +554,22 @@ function RecentExpensesFeed({
 }) {
   const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const updateExpense = useUpdateExpense();
+  const deleteExpense = useDeleteExpense();
+
+  async function handleConfirmDelete() {
+    if (!deletingExpense) return;
+    try {
+      await deleteExpense.mutateAsync(deletingExpense.id);
+      showToast("Expense deleted.");
+    } catch (err) {
+      showToast(getApiErrorMessage(err, "Could not delete expense."), "error");
+    } finally {
+      setDeletingExpense(null);
+    }
+  }
 
   const totalPages = data ? Math.max(1, Math.ceil(data.count / pageSize)) : 1;
   const hasActiveFilters = categoryFilter !== "" || isPaidFilter !== "";
@@ -485,7 +598,7 @@ function RecentExpensesFeed({
       });
       for (const expense of allExpenses) {
         rows.push([
-          expense.date,
+          formatDate(expense.date),
           expense.category_detail.name,
           expense.job_details,
           expense.worker_count ?? "",
@@ -516,18 +629,18 @@ function RecentExpensesFeed({
       >
         <FilterField label="Date range">
           <div className="flex items-center gap-1.5">
-            <input
-              type="date"
+            <DateInput
               value={fromDate}
-              onChange={(e) => onFromDateChange(e.target.value)}
-              className="input w-auto"
+              onChange={onFromDateChange}
+              aria-label="Expenses from"
+              className="w-36"
             />
             <span className="text-xs text-slate-400">to</span>
-            <input
-              type="date"
+            <DateInput
               value={toDate}
-              onChange={(e) => onToDateChange(e.target.value)}
-              className="input w-auto"
+              onChange={onToDateChange}
+              aria-label="Expenses to"
+              className="w-36"
             />
           </div>
         </FilterField>
@@ -588,7 +701,7 @@ function RecentExpensesFeed({
             Expenses
           </h2>
           <span className="hidden text-xs text-black print:block">
-            {fromDate} to {toDate}
+            {formatDate(fromDate)} to {formatDate(toDate)}
           </span>
         </div>
 
@@ -602,26 +715,27 @@ function RecentExpensesFeed({
                 <th className="px-4 py-3">Paid To</th>
                 <th className="px-4 py-3 text-right">Amount</th>
                 <th className="px-4 py-3 text-right">Status</th>
+                <th className="px-4 py-3 text-right print:hidden">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isPending && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                     Loading expenses...
                   </td>
                 </tr>
               )}
               {isError && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-red-600">
+                  <td colSpan={7} className="px-4 py-8 text-center text-red-600">
                     Failed to load expenses.
                   </td>
                 </tr>
               )}
               {!isPending && !isError && data?.results.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                     No expenses recorded for this range.
                   </td>
                 </tr>
@@ -629,7 +743,7 @@ function RecentExpensesFeed({
               {data?.results.map((expense) => (
                 <tr key={expense.id}>
                   <td className="px-4 py-3 whitespace-nowrap text-slate-600 print:text-black">
-                    {expense.date}
+                    {formatDate(expense.date)}
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-1.5 text-slate-600 print:text-black">
@@ -688,6 +802,13 @@ function RecentExpensesFeed({
                       {expense.is_paid ? "Paid" : "Unpaid"}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-right print:hidden">
+                    <RowActions
+                      itemLabel="expense"
+                      onEdit={() => setEditingExpense(expense)}
+                      onDelete={() => setDeletingExpense(expense)}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -736,6 +857,26 @@ function RecentExpensesFeed({
           </div>
         )}
       </div>
+
+      {editingExpense && (
+        <EditExpenseModal
+          expense={editingExpense}
+          categories={categories}
+          onClose={() => setEditingExpense(null)}
+        />
+      )}
+
+      {deletingExpense && (
+        <ConfirmDialog
+          title="Delete this expense?"
+          description={`${deletingExpense.job_details}, paid to ${deletingExpense.paid_to} on ${formatDate(deletingExpense.date)} (${formatCurrency(deletingExpense.amount)}). This cannot be undone.`}
+          confirmLabel="Delete Expense"
+          tone="danger"
+          isConfirming={deleteExpense.isPending}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeletingExpense(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1540,6 +1540,134 @@ class BookingEditTests(BaseAPITestCase):
         self.assertEqual(response.data["guest"]["name"], "John Doe")
 
 
+class BookingDeleteTests(BaseAPITestCase):
+    def _create_booking(self, room, check_in, check_out):
+        url = reverse("booking-list")
+        payload = self.make_booking_payload([room.id], check_in, check_out)
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        return response.data
+
+    def test_receptionist_cannot_delete_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Booking.objects.filter(id=booking["id"]).exists())
+
+    def test_manager_cannot_delete_booking(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_delete_booking_with_rooms_and_payments(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+        Payment.objects.create(
+            booking_id=booking["id"],
+            amount=Decimal("1000.00"),
+            payment_type=Payment.PaymentType.ADVANCE,
+            payment_method=Payment.PaymentMethod.CASH,
+            recorded_by=self.user,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("booking-detail", args=[booking["id"]])
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Booking.objects.filter(id=booking["id"]).exists())
+        self.assertFalse(BookingRoom.objects.filter(booking_id=booking["id"]).exists())
+        self.assertFalse(Payment.objects.filter(booking_id=booking["id"]).exists())
+
+    def test_deleted_booking_frees_room(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(reverse("booking-detail", args=[booking["id"]]))
+
+        self._create_booking(self.room1, base, base + timedelta(days=2))
+
+
+class ExpenseEditDeleteTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        self.expense = Expense.objects.create(
+            date=date.today(),
+            category=self.labor_category,
+            job_details="Roof repair",
+            worker_count=3,
+            paid_to="Vendor A",
+            amount=Decimal("4500.00"),
+            created_by=self.manager,
+        )
+        self.url = reverse("expense-detail", args=[self.expense.id])
+
+    def test_receptionist_cannot_edit_or_delete_expense(self):
+        response = self.client.patch(self.url, {"amount": "1.00"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Expense.objects.filter(id=self.expense.id).exists())
+
+    def test_manager_can_edit_expense(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.patch(
+            self.url,
+            {
+                "date": (date.today() - timedelta(days=1)).isoformat(),
+                "category": self.materials_category.id,
+                "job_details": "Roof sheets",
+                "worker_count": None,
+                "paid_to": "Vendor B",
+                "amount": "3200.00",
+                "materials_purchased": "Sheets",
+                "is_paid": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.expense.refresh_from_db()
+        self.assertEqual(self.expense.category, self.materials_category)
+        self.assertEqual(self.expense.amount, Decimal("3200.00"))
+        self.assertEqual(self.expense.paid_to, "Vendor B")
+        self.assertFalse(self.expense.is_paid)
+
+    def test_edit_rejects_non_positive_amount(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.patch(self.url, {"amount": "0"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_manager_and_admin_can_delete_expense(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Expense.objects.filter(id=self.expense.id).exists())
+
+        other = Expense.objects.create(
+            date=date.today(),
+            category=self.other_category,
+            job_details="Misc",
+            paid_to="Shop",
+            amount=Decimal("100.00"),
+            created_by=self.manager,
+        )
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(reverse("expense-detail", args=[other.id]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+
 class UserManagementTests(BaseAPITestCase):
     def test_receptionist_cannot_list_users(self):
         url = reverse("user-list")

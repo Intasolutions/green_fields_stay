@@ -89,6 +89,24 @@ export function useEditBooking() {
   });
 }
 
+export function useDeleteBooking() {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateBookingQueries();
+
+  return useMutation({
+    mutationFn: async (bookingId: string) => {
+      await apiClient.delete(`/bookings/${bookingId}/`);
+      return bookingId;
+    },
+    onSuccess: (bookingId) => {
+      queryClient.removeQueries({ queryKey: ["booking", bookingId] });
+      invalidate();
+      // Deleted payments change report totals.
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
 export function useCancelBooking() {
   const invalidate = useInvalidateBookingQueries();
 

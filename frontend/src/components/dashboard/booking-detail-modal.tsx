@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Pencil } from "lucide-react";
+import { Ban, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { useBooking } from "@/lib/hooks/use-bookings";
@@ -9,10 +9,11 @@ import {
   useCancelBooking,
   useCheckIn,
   useCheckOut,
+  useDeleteBooking,
 } from "@/lib/hooks/use-booking-mutations";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { getApiErrorMessage } from "@/lib/api-error";
-import { nightsBetween } from "@/lib/date-utils";
+import { formatDate, nightsBetween } from "@/lib/date-utils";
 import { BED_TYPE_LABELS } from "@/lib/room-categories";
 import type { PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/cn";
@@ -28,7 +29,7 @@ interface BookingDetailModalProps {
   onClose: () => void;
 }
 
-type PendingAction = "CHECK_IN" | "CHECK_OUT" | "CANCEL" | null;
+type PendingAction = "CHECK_IN" | "CHECK_OUT" | "CANCEL" | "DELETE" | null;
 
 export function BookingDetailModal({
   bookingId,
@@ -39,6 +40,7 @@ export function BookingDetailModal({
   const checkIn = useCheckIn();
   const checkOut = useCheckOut();
   const cancelBooking = useCancelBooking();
+  const deleteBooking = useDeleteBooking();
   const addPayment = useAddPayment();
   const { showToast } = useToast();
 
@@ -49,7 +51,11 @@ export function BookingDetailModal({
   const [cancellationReason, setCancellationReason] = useState("");
   const [showEditModal, setShowEditModal] = useState(false);
 
-  const isMutating = checkIn.isPending || checkOut.isPending || cancelBooking.isPending;
+  const isMutating =
+    checkIn.isPending ||
+    checkOut.isPending ||
+    cancelBooking.isPending ||
+    deleteBooking.isPending;
 
   async function handleConfirmCheckIn() {
     setError(null);
@@ -117,6 +123,19 @@ export function BookingDetailModal({
     }
   }
 
+  async function handleConfirmDelete() {
+    setError(null);
+    try {
+      await deleteBooking.mutateAsync(bookingId);
+      showToast("Booking deleted.");
+      setPendingAction(null);
+      onClose();
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not delete this booking."));
+      setPendingAction(null);
+    }
+  }
+
   const canCancel =
     currentUser?.role === "ADMIN" &&
     booking &&
@@ -124,6 +143,7 @@ export function BookingDetailModal({
     booking.status !== "CANCELLED";
 
   const canEdit = currentUser?.role === "ADMIN" && booking;
+  const canDelete = canEdit;
 
   return (
     <>
@@ -199,8 +219,8 @@ export function BookingDetailModal({
             )}
 
             <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-sm">
-              <InfoRow label="Check-in" value={booking.check_in} />
-              <InfoRow label="Check-out" value={booking.check_out} />
+              <InfoRow label="Check-in" value={formatDate(booking.check_in)} />
+              <InfoRow label="Check-out" value={formatDate(booking.check_out)} />
               <InfoRow
                 label="Nights"
                 value={String(nightsBetween(booking.check_in, booking.check_out))}
@@ -383,9 +403,34 @@ export function BookingDetailModal({
                 </button>
               </div>
             )}
+
+            {canDelete && (
+              <div className={cn(!canCancel && "border-t border-slate-100 pt-4")}>
+                <button
+                  onClick={() => setPendingAction("DELETE")}
+                  disabled={isMutating}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Booking
+                </button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
+
+      {pendingAction === "DELETE" && (
+        <ConfirmDialog
+          title="Delete this booking permanently?"
+          description="The booking and all its payments will be removed and will no longer count in reports. This cannot be undone. To keep a record, cancel the booking instead."
+          confirmLabel="Delete Booking"
+          tone="danger"
+          isConfirming={deleteBooking.isPending}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
 
       {pendingAction === "CHECK_IN" && (
         <ConfirmDialog

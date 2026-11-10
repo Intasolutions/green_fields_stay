@@ -96,10 +96,7 @@ export function useUpdateExpense() {
     mutationFn: async ({
       expenseId,
       ...payload
-    }: {
-      expenseId: string;
-      is_paid?: boolean;
-    }) => {
+    }: { expenseId: string } & Partial<CreateExpensePayload>) => {
       const response = await apiClient.patch<Expense>(
         `/expenses/${expenseId}/`,
         payload,
@@ -108,6 +105,21 @@ export function useUpdateExpense() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+export function useDeleteExpense() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (expenseId: string) => {
+      await apiClient.delete(`/expenses/${expenseId}/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }

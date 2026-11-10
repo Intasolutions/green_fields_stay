@@ -17,6 +17,7 @@ import type {
   Room,
 } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { DateInput } from "@/components/ui/date-input";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { GuestLookupField } from "@/components/dashboard/guest-lookup-field";
@@ -413,22 +414,10 @@ export function NewBookingModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Check-in" required>
-              <input
-                type="date"
-                value={checkIn}
-                onChange={(e) => setCheckIn(e.target.value)}
-                className="input"
-                required
-              />
+              <DateInput value={checkIn} onChange={setCheckIn} required />
             </Field>
             <Field label="Check-out" required>
-              <input
-                type="date"
-                value={checkOut}
-                onChange={(e) => setCheckOut(e.target.value)}
-                className="input"
-                required
-              />
+              <DateInput value={checkOut} onChange={setCheckOut} required />
             </Field>
           </div>
         </section>

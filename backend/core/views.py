@@ -192,10 +192,10 @@ class BookingViewSet(viewsets.ModelViewSet):
         "allocated_rooms__room", "payments"
     )
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_permissions(self):
-        if self.action in ("cancel", "partial_update"):
+        if self.action in ("cancel", "partial_update", "destroy"):
             return [IsAuthenticated(), IsAdmin()]
         return super().get_permissions()
 
@@ -284,8 +284,8 @@ class BookingViewSet(viewsets.ModelViewSet):
                     booking.guest.name,
                     booking.guest.phone,
                     rooms,
-                    str(booking.check_in),
-                    str(booking.check_out),
+                    booking.check_in.strftime("%d/%m/%Y"),
+                    booking.check_out.strftime("%d/%m/%Y"),
                     booking.source,
                     float(booking.total_amount),
                     float(booking.balance_due),
@@ -309,8 +309,8 @@ class BookingViewSet(viewsets.ModelViewSet):
                     booking.guest.name,
                     booking.guest.phone,
                     rooms,
-                    str(booking.check_in),
-                    str(booking.check_out),
+                    booking.check_in.strftime("%d/%m/%Y"),
+                    booking.check_out.strftime("%d/%m/%Y"),
                     booking.status,
                     str(booking.total_amount),
                     str(booking.balance_due)
