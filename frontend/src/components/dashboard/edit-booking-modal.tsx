@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 
 import { useEditBooking } from "@/lib/hooks/use-booking-mutations";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { formatDate } from "@/lib/date-utils";
 import { BOOKING_SOURCES, OTA_SOURCES, SOURCE_STYLES } from "@/lib/source-colors";
 import type { Booking, BookingSource } from "@/lib/types";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DateInput } from "@/components/ui/date-input";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
@@ -35,6 +37,7 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
   const [totalAmount, setTotalAmount] = useState(booking.total_amount);
   const [otaCommission, setOtaCommission] = useState(booking.ota_commission);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const isOta = OTA_SOURCES.includes(source);
 
@@ -46,7 +49,7 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
     return net.toFixed(2);
   }, [totalAmount, otaCommission]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -59,6 +62,10 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
       return;
     }
 
+    setConfirming(true);
+  }
+
+  async function saveChanges() {
     try {
       await editBooking.mutateAsync({
         bookingId: booking.id,
@@ -77,6 +84,7 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
       showToast("Booking updated.");
       onClose();
     } catch (err) {
+      setConfirming(false);
       setError(getApiErrorMessage(err, "Could not update booking."));
     }
   }
@@ -176,6 +184,17 @@ export function EditBookingModal({ booking, onClose }: EditBookingModalProps) {
           </button>
         </div>
       </form>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Save changes?"
+          description={`${booking.guest.name}'s booking will be updated to ${formatDate(checkIn)} to ${formatDate(checkOut)}, total Rs. ${parseFloat(totalAmount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`}
+          confirmLabel="Save Changes"
+          isConfirming={editBooking.isPending}
+          onConfirm={saveChanges}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </Modal>
   );
 }

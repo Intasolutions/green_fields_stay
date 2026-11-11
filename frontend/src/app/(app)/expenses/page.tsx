@@ -311,6 +311,8 @@ function ExpenseForm({
   );
   const [isPaid, setIsPaid] = useState(expense?.is_paid ?? true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingPayload, setPendingPayload] =
+    useState<CreateExpensePayload | null>(null);
 
   const selectedCategory = activeCategories.find((c) => c.id === categoryId);
   const showWorkerCount = selectedCategory?.tracks_worker_count ?? false;
@@ -358,23 +360,35 @@ function ExpenseForm({
       return;
     }
 
+    const payload: CreateExpensePayload = {
+      date,
+      category: categoryId,
+      job_details: jobDetails.trim(),
+      worker_count:
+        showWorkerCount && workerCount ? parseInt(workerCount, 10) : null,
+      paid_to: paidTo.trim(),
+      amount,
+      materials_purchased:
+        showMaterialsPurchased && materialsPurchased.trim()
+          ? materialsPurchased.trim()
+          : null,
+      is_paid: isPaid,
+    };
+
+    // Editing an existing expense asks for confirmation first.
+    if (expense) {
+      setPendingPayload(payload);
+      return;
+    }
+    await save(payload);
+  }
+
+  async function save(payload: CreateExpensePayload) {
     try {
-      await onSubmit({
-        date,
-        category: categoryId,
-        job_details: jobDetails.trim(),
-        worker_count:
-          showWorkerCount && workerCount ? parseInt(workerCount, 10) : null,
-        paid_to: paidTo.trim(),
-        amount,
-        materials_purchased:
-          showMaterialsPurchased && materialsPurchased.trim()
-            ? materialsPurchased.trim()
-            : null,
-        is_paid: isPaid,
-      });
+      await onSubmit(payload);
       if (!expense) resetForm();
     } catch (err) {
+      setPendingPayload(null);
       setError(
         getApiErrorMessage(
           err,
@@ -511,6 +525,17 @@ function ExpenseForm({
           {isSubmitting ? "Saving..." : submitLabel}
         </button>
       )}
+
+      {pendingPayload && (
+        <ConfirmDialog
+          title="Save changes?"
+          description={`${pendingPayload.job_details}, paid to ${pendingPayload.paid_to} on ${formatDate(pendingPayload.date)} (${formatCurrency(pendingPayload.amount)}, ${pendingPayload.is_paid ? "paid" : "unpaid"}).`}
+          confirmLabel="Save Changes"
+          isConfirming={isSubmitting}
+          onConfirm={() => save(pendingPayload)}
+          onCancel={() => setPendingPayload(null)}
+        />
+      )}
     </form>
   );
 }
@@ -558,6 +583,23 @@ function RecentExpensesFeed({
   const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const updateExpense = useUpdateExpense();
   const deleteExpense = useDeleteExpense();
+  const [togglingExpense, setTogglingExpense] = useState<Expense | null>(null);
+
+  async function handleConfirmToggle() {
+    if (!togglingExpense) return;
+    const nextPaid = !togglingExpense.is_paid;
+    try {
+      await updateExpense.mutateAsync({
+        expenseId: togglingExpense.id,
+        is_paid: nextPaid,
+      });
+      showToast(`Expense marked as ${nextPaid ? "paid" : "unpaid"}.`);
+    } catch (err) {
+      showToast(getApiErrorMessage(err, "Could not update status."), "error");
+    } finally {
+      setTogglingExpense(null);
+    }
+  }
 
   async function handleConfirmDelete() {
     if (!deletingExpense) return;
@@ -778,17 +820,8 @@ function RecentExpensesFeed({
                   </td>
                   <td className="px-4 py-3 text-right text-sm">
                     <button
-                      onClick={async () => {
-                        try {
-                          await updateExpense.mutateAsync({
-                            expenseId: expense.id,
-                            is_paid: !expense.is_paid,
-                          });
-                          showToast(`Expense marked as ${!expense.is_paid ? "paid" : "unpaid"}.`);
-                        } catch (err) {
-                          showToast("Failed to update status", "error");
-                        }
-                      }}
+                      onClick={() => setTogglingExpense(expense)}
+                      title={expense.is_paid ? "Mark as unpaid" : "Mark as paid"}
                       className={cn(
                         "inline-flex rounded-full px-2 py-0.5 text-xs font-medium border print:hidden",
                         expense.is_paid 
@@ -875,6 +908,17 @@ function RecentExpensesFeed({
           isConfirming={deleteExpense.isPending}
           onConfirm={handleConfirmDelete}
           onCancel={() => setDeletingExpense(null)}
+        />
+      )}
+
+      {togglingExpense && (
+        <ConfirmDialog
+          title={`Mark as ${togglingExpense.is_paid ? "unpaid" : "paid"}?`}
+          description={`${togglingExpense.job_details}, paid to ${togglingExpense.paid_to} on ${formatDate(togglingExpense.date)} (${formatCurrency(togglingExpense.amount)}).`}
+          confirmLabel={togglingExpense.is_paid ? "Mark Unpaid" : "Mark Paid"}
+          isConfirming={updateExpense.isPending}
+          onConfirm={handleConfirmToggle}
+          onCancel={() => setTogglingExpense(null)}
         />
       )}
     </div>

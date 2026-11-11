@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/cn";
@@ -26,6 +27,19 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  // Escape closes only this dialog. Listening in the capture phase and
+  // stopping propagation keeps a Modal underneath (which also closes on
+  // Escape) open, so a half-edited form isn't thrown away.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      if (!isConfirming) onCancel();
+    }
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [isConfirming, onCancel]);
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
