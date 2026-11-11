@@ -154,8 +154,10 @@ function UserRow({ user, isSelf }: { user: StaffUser; isSelf: boolean }) {
         <div className="relative inline-block">
           <button
             onClick={() => setShowRoleMenu((v) => !v)}
+            disabled={isSelf}
+            title={isSelf ? "You cannot change your own role" : undefined}
             className={cn(
-              "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+              "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium disabled:cursor-default",
               ROLE_BADGE[user.role],
             )}
           >

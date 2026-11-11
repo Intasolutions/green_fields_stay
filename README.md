@@ -33,8 +33,16 @@ DATABASE_URL=postgresql://<user>:<password>@<host>/<dbname>?sslmode=require
 CORS_ALLOWED_ORIGINS=http://localhost:3000
 ```
 
-Without a `.env`/`DATABASE_URL`, the project falls back to a local
-`db.sqlite3` file so it's runnable before Neon credentials are available.
+Without `DATABASE_URL`, the project falls back to a local `db.sqlite3`
+file. `DEBUG` defaults to off, and with `DEBUG` off the app refuses to start
+without a `SECRET_KEY`, so local development needs at least `DEBUG=True` in
+`.env`.
+
+On a server, also set `CSRF_TRUSTED_ORIGINS` (the public HTTPS origin, for the
+Django `/admin` login) and, if PostgreSQL runs on the same machine without
+SSL, `DATABASE_SSL_REQUIRE=False`. See `backend/.env.example`. The backend
+expects the reverse proxy to send `X-Forwarded-Proto`. All dates and times
+use India time (`Asia/Kolkata`).
 `manage.py test` always runs against an in-memory SQLite database regardless
 of `.env`, so the suite stays fast and never touches the real database.
 
@@ -73,9 +81,10 @@ python manage.py runserver
 python manage.py test core
 ```
 
-108 tests covering guest/companion intake, multi-room bookings, the full
+127 tests covering guest/companion intake, multi-room bookings, the full
 double-booking overlap matrix, check-in/check-out/cancel lifecycle,
-balance-due enforcement, booking edits, room specifications, expense
+balance-due enforcement, payment/refund limits, booking edits and deletion,
+expense edits and deletion, login rate limiting, room specifications, expense
 category management, user management, and role-based permissions throughout.
 
 ## Frontend setup
@@ -90,6 +99,9 @@ npm run dev
 Runs on http://localhost:3000 and expects the backend at
 `http://127.0.0.1:8000` by default (see `NEXT_PUBLIC_API_BASE_URL` in
 `.env.local`).
+
+`NEXT_PUBLIC_API_BASE_URL` is baked in at build time, and a production build
+fails if it isn't set (e.g. `https://bookings.greenfieldstay.com/api`).
 
 ```bash
 npm run build   # production build

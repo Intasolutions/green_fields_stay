@@ -109,10 +109,15 @@ class Booking(models.Model):
 
     @property
     def amount_paid(self):
-        from django.db.models import Sum
-
-        total = self.payments.aggregate(total=Sum("amount"))["total"]
-        return total or 0
+        # Iterates payments.all() rather than aggregating so a prefetched
+        # payments list is reused instead of costing a query per booking.
+        total = 0
+        for payment in self.payments.all():
+            if payment.payment_type == Payment.PaymentType.REFUND:
+                total -= payment.amount
+            else:
+                total += payment.amount
+        return total
 
     @property
     def balance_due(self):

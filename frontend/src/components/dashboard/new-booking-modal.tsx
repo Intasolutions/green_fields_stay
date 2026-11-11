@@ -250,9 +250,8 @@ export function NewBookingModal({
                   }
                   inputMode="numeric"
                   maxLength={12}
-                  placeholder="12-digit Aadhaar number"
+                  placeholder="12-digit Aadhaar number (optional)"
                   className="input"
-                  required
                 />
               </Field>
               <Field label="Profile Tag">

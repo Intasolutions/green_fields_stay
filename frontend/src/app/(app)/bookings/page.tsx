@@ -132,7 +132,7 @@ export default function BookingsPage() {
           check_in_from: checkInFrom || undefined,
           check_in_to: checkInTo || undefined,
           ordering: ordering || undefined,
-          format,
+          file_format: format,
         },
         responseType: "blob",
       });
@@ -145,8 +145,8 @@ export default function BookingsPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Export failed:", error);
+    } catch {
+      showToast("Could not export bookings.", "error");
     }
   };
 
@@ -184,7 +184,7 @@ export default function BookingsPage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryTile
           icon={CalendarRange}
-          label="Bookings on this page"
+          label="Total bookings"
           value={isPending ? "…" : String(data?.count ?? 0)}
           accent="bg-blue-100 text-blue-700"
         />

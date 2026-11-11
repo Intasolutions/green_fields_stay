@@ -1,6 +1,6 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     BookingViewSet,
@@ -8,6 +8,7 @@ from .views import (
     ExpenseViewSet,
     FinancialSummaryReportView,
     GuestViewSet,
+    LoginView,
     MeView,
     OccupancyReportView,
     RoomAvailabilityView,
@@ -24,7 +25,7 @@ router.register("rooms", RoomViewSet, basename="room")
 router.register("users", UserViewSet, basename="user")
 
 urlpatterns = [
-    path("auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("auth/token/", LoginView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", MeView.as_view(), name="me"),
     # Must precede the router include: "availability" would otherwise be

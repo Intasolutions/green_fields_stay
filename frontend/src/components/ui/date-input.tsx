@@ -50,8 +50,11 @@ export function DateInput({
     const masked = maskDigits(raw);
 
     if (masked === "") {
-      setDraft(null);
-      setValidity("");
+      // Keep the field empty while focused even if the parent ignores ""
+      // (e.g. the room matrix, which always needs a date), so a new date
+      // can be typed in; blur falls back to the parent's value.
+      setDraft("");
+      setValidity(required ? INVALID_MESSAGE : "");
       onChange("");
       return;
     }

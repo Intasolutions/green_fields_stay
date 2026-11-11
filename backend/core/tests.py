@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -13,6 +14,7 @@ User = get_user_model()
 
 class BaseAPITestCase(APITestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             username="receptionist1",
             password="testpass123",
@@ -121,7 +123,7 @@ class BookingCreateTests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(Booking.objects.first().guest_id, guest.id)
 
-    def test_new_guest_requires_aadhaar(self):
+    def test_new_guest_aadhaar_is_optional(self):
         url = reverse("booking-list")
         check_in = date.today() + timedelta(days=1)
         check_out = date.today() + timedelta(days=3)
@@ -134,7 +136,34 @@ class BookingCreateTests(BaseAPITestCase):
 
         response = self.client.post(url, payload, format="json")
 
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_total_amount_must_be_positive(self):
+        url = reverse("booking-list")
+        base = date.today() + timedelta(days=1)
+        payload = self.make_booking_payload(
+            [self.room1.id], base, base + timedelta(days=2), total_amount="0"
+        )
+
+        response = self.client.post(url, payload, format="json")
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_initial_payment_cannot_exceed_total(self):
+        url = reverse("booking-list")
+        base = date.today() + timedelta(days=1)
+        payload = self.make_booking_payload(
+            [self.room1.id],
+            base,
+            base + timedelta(days=2),
+            total_amount="1000.00",
+            initial_payment={"amount": "1500.00", "payment_method": "CASH"},
+        )
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Booking.objects.count(), 0)
 
     def test_new_guest_aadhaar_must_be_12_digits(self):
         url = reverse("booking-list")
@@ -470,7 +499,19 @@ class BookingLifecycleTests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], Booking.Status.CHECKED_OUT)
 
-    def test_check_out_with_override_allows_unsettled_balance(self):
+    def test_manager_override_allows_unsettled_balance(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(self.room1, base, base + timedelta(days=2))
+        self.client.patch(reverse("booking-check-in", args=[booking["id"]]))
+
+        self.client.force_authenticate(user=self.manager)
+        url = reverse("booking-check-out", args=[booking["id"]])
+        response = self.client.patch(url, {"override_balance": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], Booking.Status.CHECKED_OUT)
+
+    def test_receptionist_cannot_override_balance(self):
         base = date.today() + timedelta(days=1)
         booking = self._create_booking(self.room1, base, base + timedelta(days=2))
         self.client.patch(reverse("booking-check-in", args=[booking["id"]]))
@@ -478,8 +519,10 @@ class BookingLifecycleTests(BaseAPITestCase):
         url = reverse("booking-check-out", args=[booking["id"]])
         response = self.client.patch(url, {"override_balance": True}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["status"], Booking.Status.CHECKED_OUT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            Booking.objects.get(id=booking["id"]).status, Booking.Status.CHECKED_IN
+        )
 
     def test_add_payment_endpoint(self):
         base = date.today() + timedelta(days=1)
@@ -513,6 +556,64 @@ class BookingLifecycleTests(BaseAPITestCase):
             },
             format="json",
         )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _pay(self, booking_id, amount, payment_type=Payment.PaymentType.SETTLEMENT):
+        return self.client.post(
+            reverse("booking-add-payment", args=[booking_id]),
+            {
+                "amount": amount,
+                "payment_type": payment_type,
+                "payment_method": Payment.PaymentMethod.CASH,
+            },
+            format="json",
+        )
+
+    def test_payment_response_includes_new_payment(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(
+            self.room1, base, base + timedelta(days=2), total_amount="1000.00"
+        )
+
+        response = self._pay(booking["id"], "400.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["amount_paid"], "400.00")
+        self.assertEqual(response.data["balance_due"], "600.00")
+
+    def test_payment_cannot_exceed_balance_due(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(
+            self.room1, base, base + timedelta(days=2), total_amount="1000.00"
+        )
+
+        response = self._pay(booking["id"], "1000.01")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Payment.objects.count(), 0)
+
+    def test_refund_increases_balance_due(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(
+            self.room1, base, base + timedelta(days=2), total_amount="1000.00"
+        )
+        self._pay(booking["id"], "1000.00")
+
+        response = self._pay(booking["id"], "300.00", Payment.PaymentType.REFUND)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["amount_paid"], "700.00")
+        self.assertEqual(response.data["balance_due"], "300.00")
+
+    def test_refund_cannot_exceed_amount_paid(self):
+        base = date.today() + timedelta(days=1)
+        booking = self._create_booking(
+            self.room1, base, base + timedelta(days=2), total_amount="1000.00"
+        )
+        self._pay(booking["id"], "200.00")
+
+        response = self._pay(booking["id"], "250.00", Payment.PaymentType.REFUND)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -555,7 +656,7 @@ class BookingLifecycleTests(BaseAPITestCase):
 
 class RoomAvailabilityViewTests(BaseAPITestCase):
     def test_availability_reflects_bookings(self):
-        base = date.today() + timedelta(days=1)
+        base = date.today()
         url = reverse("booking-list")
         payload = self.make_booking_payload(
             [self.room1.id], base, base + timedelta(days=2)
@@ -1236,6 +1337,26 @@ class AuthTests(BaseAPITestCase):
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
 
+    def test_login_is_rate_limited(self):
+        cache.clear()
+        self.client.force_authenticate(user=None)
+        url = reverse("token_obtain_pair")
+        bad_login = {"username": "receptionist1", "password": "wrong"}
+
+        for _ in range(10):
+            response = self.client.post(url, bad_login, format="json")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.post(url, bad_login, format="json")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Other staff on the same IP can still sign in.
+        response = self.client.post(
+            url, {"username": "manager1", "password": "testpass123"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cache.clear()
+
 
 class GuestSearchTests(BaseAPITestCase):
     def setUp(self):
@@ -1598,6 +1719,35 @@ class BookingDeleteTests(BaseAPITestCase):
         self._create_booking(self.room1, base, base + timedelta(days=2))
 
 
+class BookingExportTests(BaseAPITestCase):
+    def test_export_excel_and_pdf(self):
+        base = date.today() + timedelta(days=1)
+        self.client.post(
+            reverse("booking-list"),
+            self.make_booking_payload([self.room1.id], base, base + timedelta(days=2)),
+            format="json",
+        )
+        url = reverse("booking-export-bookings")
+
+        response = self.client.get(url, {"file_format": "excel"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        response = self.client.get(url, {"file_format": "pdf"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_export_rejects_unknown_format(self):
+        response = self.client.get(
+            reverse("booking-export-bookings"), {"file_format": "csv"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class ExpenseEditDeleteTests(BaseAPITestCase):
     def setUp(self):
         super().setUp()
@@ -1669,6 +1819,15 @@ class ExpenseEditDeleteTests(BaseAPITestCase):
 
 
 class UserManagementTests(BaseAPITestCase):
+    def test_admin_cannot_change_own_role(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("user-detail", args=[self.admin.id])
+        response = self.client.patch(url, {"role": "RECEPTIONIST"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.role, User.Role.ADMIN)
+
     def test_receptionist_cannot_list_users(self):
         url = reverse("user-list")
         response = self.client.get(url)

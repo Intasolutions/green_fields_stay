@@ -6,10 +6,12 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
 from django.http import HttpResponse
 
 import openpyxl
@@ -63,6 +65,29 @@ def _parse_report_date_range(request):
     return date_from, date_to
 
 
+class LoginRateThrottle(SimpleRateThrottle):
+    """
+    Limits login attempts per username rather than per IP. Logins go through
+    the Next.js server, so every user would share that server's IP and one
+    person hammering the form could lock all staff out.
+    """
+
+    scope = "login"
+
+    def get_cache_key(self, request, view):
+        username = str(request.data.get("username", "")).strip().lower()
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": username or self.get_ident(request),
+        }
+
+
+class LoginView(TokenObtainPairView):
+    """JWT login, rate-limited per username to slow down password guessing."""
+
+    throttle_classes = [LoginRateThrottle]
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -85,8 +110,12 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
-        if instance == request.user and request.data.get("is_active") is False:
-            raise ValidationError("You cannot deactivate your own account.")
+        if instance == request.user:
+            if request.data.get("is_active") is False:
+                raise ValidationError("You cannot deactivate your own account.")
+            # Stops the last Admin from locking everyone out of admin pages.
+            if "role" in request.data and request.data["role"] != instance.role:
+                raise ValidationError("You cannot change your own role.")
         return super().partial_update(request, *args, **kwargs)
 
 
@@ -110,7 +139,7 @@ class RoomAvailabilityView(APIView):
             booking__status__in=NON_CANCELLED_STATUSES,
             booking__check_in__lt=end_date,
             booking__check_out__gte=start_date,
-        ).select_related("booking", "room").prefetch_related("booking__payments")
+        ).select_related("booking__guest", "room").prefetch_related("booking__payments")
 
         bookings_by_room = {}
         for allocation in overlapping_allocations:
@@ -189,7 +218,7 @@ class GuestViewSet(viewsets.ReadOnlyModelViewSet):
 
 class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.select_related("guest").prefetch_related(
-        "allocated_rooms__room", "payments"
+        "allocated_rooms__room", "payments", "companions"
     )
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -265,7 +294,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="export")
     def export_bookings(self, request):
         queryset = self.get_queryset()
-        export_format = request.query_params.get("format", "excel")
+        export_format = request.query_params.get("file_format", "excel")
         
         if export_format == "excel":
             response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -352,7 +381,11 @@ class BookingViewSet(viewsets.ModelViewSet):
                 f"Cannot check out a booking with status '{booking.status}'."
             )
 
-        override = bool(request.data.get("override_balance", False))
+        override = request.data.get("override_balance") in (True, "true", "True", "1", 1)
+        if override and request.user.role not in (User.Role.MANAGER, User.Role.ADMIN):
+            raise PermissionDenied(
+                "Only a Manager or Admin can check out with a balance due."
+            )
         if booking.balance_due > 0 and not override:
             raise ValidationError(
                 {
@@ -388,11 +421,27 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="payments")
     def add_payment(self, request, pk=None):
         booking = self.get_object()
+        if booking.status == Booking.Status.CANCELLED:
+            raise ValidationError("Cannot record a payment on a cancelled booking.")
+
         serializer = PaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        amount = serializer.validated_data["amount"]
+        if serializer.validated_data["payment_type"] == Payment.PaymentType.REFUND:
+            if amount > booking.amount_paid:
+                raise ValidationError(
+                    {"amount": f"Refund cannot exceed the amount paid ({booking.amount_paid})."}
+                )
+        elif amount > booking.balance_due:
+            raise ValidationError(
+                {"amount": f"Payment cannot exceed the balance due ({booking.balance_due})."}
+            )
+
         serializer.save(booking=booking, recorded_by=request.user)
+        # Re-fetch: the prefetched payments on `booking` predate this payment.
         return Response(
-            BookingSerializer(booking).data, status=status.HTTP_201_CREATED
+            BookingSerializer(self.get_object()).data, status=status.HTTP_201_CREATED
         )
 
 

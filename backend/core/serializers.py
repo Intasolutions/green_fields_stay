@@ -330,6 +330,11 @@ class BookingCreateSerializer(serializers.Serializer):
     initial_payment = InitialPaymentSerializer(required=False)
     companions = CompanionSerializer(many=True, required=False)
 
+    def validate_total_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Total amount must be positive.")
+        return value
+
     def validate(self, attrs):
         check_in = attrs["check_in"]
         check_out = attrs["check_out"]
@@ -357,6 +362,12 @@ class BookingCreateSerializer(serializers.Serializer):
                         f"overlapping date range: {', '.join(conflicting_rooms)}."
                     )
                 }
+            )
+
+        initial_payment = attrs.get("initial_payment")
+        if initial_payment and initial_payment["amount"] > attrs["total_amount"]:
+            raise serializers.ValidationError(
+                {"initial_payment": "Payment cannot exceed the total amount."}
             )
 
         if "net_payout" not in attrs or attrs.get("net_payout") is None:
@@ -469,6 +480,11 @@ class BookingEditSerializer(serializers.ModelSerializer):
             "net_payout",
             "remarks",
         ]
+
+    def validate_total_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Total amount must be positive.")
+        return value
 
     def validate(self, attrs):
         check_in = attrs.get("check_in", self.instance.check_in)

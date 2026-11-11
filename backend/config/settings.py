@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,13 +23,18 @@ def env_bool(name, default=False):
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY", "django-insecure-dev-key-change-in-production"
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_bool("DEBUG", True)
+# Off unless .env explicitly sets DEBUG=True, so a missing setting on a
+# server never exposes debug pages.
+DEBUG = env_bool("DEBUG", False)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG or "test" in sys.argv:
+        SECRET_KEY = "django-insecure-dev-key-change-in-production"
+    else:
+        raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG is off.")
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -96,7 +102,9 @@ if DATABASE_URL and not RUNNING_TESTS:
         "default": dj_database_url.parse(
             DATABASE_URL,
             conn_max_age=600,
-            ssl_require=True,
+            # Hosted databases (Neon) need SSL; a PostgreSQL on the same
+            # server usually doesn't have it, so set DATABASE_SSL_REQUIRE=False.
+            ssl_require=env_bool("DATABASE_SSL_REQUIRE", True),
         )
     }
 else:
@@ -143,7 +151,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Kolkata"
 
 USE_I18N = True
 
@@ -155,7 +163,12 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -174,7 +187,18 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PAGINATION_CLASS": "core.pagination.CustomPageNumberPagination",
     "PAGE_SIZE": 20,
+    # Login attempts per username (see core.views.LoginRateThrottle).
+    "DEFAULT_THROTTLE_RATES": {"login": "10/minute"},
+    # One reverse proxy (Nginx/Render) in front: identify clients by the
+    # address it appends to X-Forwarded-For, which clients can't forge.
+    "NUM_PROXIES": 1,
 }
+
+# JSON only in production; the browsable HTML API is a development aid.
+if not DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"] = (
+        "rest_framework.renderers.JSONRenderer",
+    )
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
@@ -190,3 +214,20 @@ CORS_ALLOWED_ORIGINS = [
     for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
+
+
+# CSRF (only Django's /admin uses it; the API authenticates with JWT).
+# Set to the public HTTPS origins, e.g. https://bookings.greenfieldstay.com
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+]
+
+
+# HTTPS behind a reverse proxy (Nginx / Render) that terminates TLS and
+# forwards X-Forwarded-Proto.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
